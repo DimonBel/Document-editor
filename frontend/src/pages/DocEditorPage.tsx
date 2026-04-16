@@ -155,6 +155,18 @@ export function DocEditorPage() {
           }
           break;
 
+        case 'doc_content_update':
+          if (data.senderId !== clientId && data.content !== undefined) {
+            isLocalChangeRef.current = true;
+            if (editorRef.current) {
+              editorRef.current.innerText = data.content;
+            }
+            contentRef.current = data.content;
+            setContent(data.content);
+            isLocalChangeRef.current = false;
+          }
+          break;
+
         case 'doc_cursor_update':
           if (data.clientId !== clientId) {
             setRemoteUsers(prev => ({
