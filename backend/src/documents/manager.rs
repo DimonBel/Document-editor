@@ -162,8 +162,8 @@ impl DocumentManager {
         doc.text_doc.apply(op.clone());
 
         let msg = serde_json::json!({
-            "type": "doc_operation",
-            "op": op,
+            "type": "doc_content_update",
+            "content": doc.text_doc.content(),
             "senderId": sender_id,
         })
         .to_string();
