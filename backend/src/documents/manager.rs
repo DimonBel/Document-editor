@@ -181,4 +181,26 @@ impl DocumentManager {
         .to_string();
         doc.broadcast_except(joiner_id, &msg);
     }
+
+    pub fn broadcast_cursor(
+        &self,
+        doc_id: &str,
+        client_id: &str,
+        name: &str,
+        position: usize,
+        selection: Option<serde_json::Value>,
+    ) {
+        let Some(doc) = self.documents.get(doc_id) else {
+            return;
+        };
+        let msg = serde_json::json!({
+            "type": "doc_cursor_update",
+            "clientId": client_id,
+            "name": name,
+            "position": position,
+            "selection": selection,
+        })
+        .to_string();
+        doc.broadcast_except(client_id, &msg);
+    }
 }

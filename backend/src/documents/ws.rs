@@ -23,6 +23,13 @@ enum InboundDocMsg {
     DocOperation {
         op: TextOp,
     },
+    DocCursorUpdate {
+        #[serde(rename = "clientId")]
+        client_id: String,
+        name: String,
+        position: usize,
+        selection: Option<serde_json::Value>,
+    },
 }
 
 pub struct DocWsSession {
@@ -110,6 +117,13 @@ impl DocWsSession {
                     .lock()
                     .unwrap()
                     .apply_text_op(&self.doc_id, &self.id, safe_op);
+            }
+
+            InboundDocMsg::DocCursorUpdate { client_id, name, position, selection } => {
+                self.docs
+                    .lock()
+                    .unwrap()
+                    .broadcast_cursor(&self.doc_id, &client_id, &name, position, selection);
             }
         }
     }
