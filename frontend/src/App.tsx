@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Card, Typography } from 'antd';
+import { Card, Typography, message } from 'antd';
 import { FormOutlined, FileTextOutlined } from '@ant-design/icons';
 import { WhiteboardPage } from './pages/WhiteboardPage';
 import { DocEditorPage } from './pages/DocEditorPage';
 import { DocSelector } from './features/doc/DocSelector';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { useDocStore } from './store/docStore';
+import { docsApi } from './core/api/docsApi';
 
 const { Title, Text } = Typography;
 
@@ -13,11 +14,12 @@ type AppMode = 'home' | 'room' | 'doc-cabinet' | 'doc';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('home');
-  const docId = useDocStore((s) => s.docId);
+  const [loadingDoc, setLoadingDoc] = useState(false);
 
   const goToCabinet = () => {
     useDocStore.getState().leaveDoc();
     setMode('doc-cabinet');
+    window.history.pushState({}, '', '/');
   };
 
   const goHome = () => {
@@ -25,11 +27,56 @@ export default function App() {
     setMode('home');
   };
 
-  useEffect(() => {
-    if (docId && mode === 'doc-cabinet') {
+  const goToDoc = async (docId: string) => {
+    setLoadingDoc(true);
+    try {
+      const doc = await docsApi.get(docId);
+      useDocStore.getState().joinDoc(doc.id, doc.title);
       setMode('doc');
+      window.history.pushState({}, '', `/doc/${docId}`);
+    } catch (e) {
+      console.error('Failed to load document:', e);
+      message.error('Document not found');
+      goToCabinet();
+    } finally {
+      setLoadingDoc(false);
     }
+  };
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    const match = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
+    if (match) {
+      goToDoc(match[1]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      const match = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
+      if (match) {
+        goToDoc(match[1]);
+      } else {
+        goToCabinet();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const docId = useDocStore((s) => s.docId);
+  useEffect(() => {
+    if (docId && mode === 'doc-cabinet') setMode('doc');
   }, [docId, mode]);
+
+  if (loadingDoc) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <Typography.Text>Loading document...</Typography.Text>
+      </div>
+    );
+  }
 
   return (
     <ErrorBoundary>
