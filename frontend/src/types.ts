@@ -1,3 +1,40 @@
+export interface TextOp {
+  id: string;
+  client_id: string;
+  lamport: number;
+  type: 'insert' | 'delete';
+  position: number;
+  text?: string;
+  length?: number;
+}
+
+export interface DocInfo {
+  id: string;
+  title: string;
+  created_at: string;
+  client_count: number;
+}
+
+export interface DocContent {
+  type: 'doc_sync';
+  docId: string;
+  content: string;
+  version: number;
+  clients: ClientInfo[];
+}
+
+export interface ClientInfo {
+  id: string;
+  name: string;
+}
+
+export interface RoomInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  client_count: number;
+}
+
 export interface DrawElement {
   id: string;
   type: string;
@@ -27,18 +64,6 @@ export interface Operation {
   clientId: string;
   lamport: number;
   op: OpType;
-}
-
-export interface RoomInfo {
-  id: string;
-  name: string;
-  created_at: string;
-  client_count: number;
-}
-
-export interface ClientInfo {
-  id: string;
-  name: string;
 }
 
 export interface CursorPosition {
