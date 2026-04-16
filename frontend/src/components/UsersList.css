@@ -1,0 +1,12 @@
+.users-list {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 200;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding: 4px;
+}

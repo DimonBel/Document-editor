@@ -1,0 +1,39 @@
+@import '../app/styles/tokens.css';
+
+/* ── Page root ───────────────────────────────────────────────────────────── */
+.wb-page {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--color-neutral-0);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.wb-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background: var(--color-neutral-0);
+  border-bottom: 1px solid var(--color-neutral-200);
+  z-index: var(--z-header);
+  box-shadow: var(--shadow-sm);
+}
+
+.wb-header__room {
+  flex: 1;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-header__leave {
+  flex-shrink: 0;
+}

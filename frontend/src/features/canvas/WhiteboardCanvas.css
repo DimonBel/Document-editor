@@ -1,0 +1,9 @@
+@import '../../app/styles/tokens.css';
+
+.canvas-root {
+  position: absolute;
+  inset: var(--header-height) 0 0 0;
+  background: var(--color-neutral-0);
+  touch-action: none;
+  overflow: hidden;
+}
