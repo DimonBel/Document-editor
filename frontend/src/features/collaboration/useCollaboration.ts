@@ -4,7 +4,9 @@ import { CRDTDocument } from '../../core/crdt/CRDTDocument';
 import { useRoomStore } from '../../store/roomStore';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useCollabStore } from '../../store/collabStore';
-import { DrawElement, Point } from '../../types';
+import { DrawElement, Point, Operation } from '../../types';
+
+const DEBOUNCE_MS = 50;
 
 export function useCollaboration() {
   const { roomId, clientId, clientName, setConnected } = useRoomStore();
@@ -13,6 +15,28 @@ export function useCollaboration() {
 
   const wsRef = useRef<WSClient | null>(null);
   const crdtRef = useRef<CRDTDocument | null>(null);
+  const pendingOpsRef = useRef<Operation[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPending = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || pendingOpsRef.current.length === 0) return;
+
+    const ops = pendingOpsRef.current;
+    pendingOpsRef.current = [];
+
+    for (const op of ops) {
+      ws.send({ type: 'operation', operation: op });
+    }
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current) return;
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      flushPending();
+    }, DEBOUNCE_MS);
+  }, [flushPending]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -68,18 +92,21 @@ export function useCollaboration() {
       ws.disconnect();
       reset();
       setConnected(false);
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      pendingOpsRef.current = [];
     };
-  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset]);
+  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending]);
 
   const addElement = useCallback((type: string, data: Record<string, unknown>) => {
     const crdt = crdtRef.current;
-    const ws = wsRef.current;
-    if (!crdt || !ws) return;
+    if (!crdt) return;
 
     const op = crdt.addElement(type, data);
     setElements(crdt.getOrderedElements());
-    ws.send({ type: 'operation', operation: op });
-  }, [setElements]);
+
+    pendingOpsRef.current.push(op);
+    scheduleFlush();
+  }, [setElements, scheduleFlush]);
 
   const sendCursor = useCallback((position: Point) => {
     wsRef.current?.send({
