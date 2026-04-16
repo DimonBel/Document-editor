@@ -37,6 +37,7 @@ export function DocEditorPage() {
   const contentRef = useRef(content);
   const clientName = useDocStore.getState().clientName;
   const isLocalChangeRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -99,16 +100,14 @@ export function DocEditorPage() {
 
             case 'doc_content_update':
               if (data.senderId !== clientId && data.content !== undefined) {
-                setTimeout(() => {
-                  if (!isMounted) return;
-                  isLocalChangeRef.current = true;
-                  if (editorRef.current) {
-                    editorRef.current.innerText = data.content;
-                  }
-                  contentRef.current = data.content;
-                  setContent(data.content);
-                  isLocalChangeRef.current = false;
-                }, 50);
+                isLocalChangeRef.current = true;
+                if (editorRef.current) {
+                  editorRef.current.innerText = data.content;
+                }
+                contentRef.current = data.content;
+                setContent(data.content);
+                isLocalChangeRef.current = false;
+                message.info('Document updated by another user');
               }
               break;
 
@@ -165,11 +164,33 @@ export function DocEditorPage() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
       if (ws) {
         ws.close();
       }
     };
   }, [docId, clientId, clientName, setContent]);
+
+  const saveContent = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const currentContent = editorRef.current?.innerText || '';
+      wsRef.current.send(JSON.stringify({
+        type: 'DocContentUpdate',
+        content: currentContent,
+      }));
+    }
+  };
+
+  const scheduleSave = () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveContent();
+    }, 500);
+  };
 
   const handleInput = () => {
     if (isLocalChangeRef.current) {
@@ -187,13 +208,7 @@ export function DocEditorPage() {
 
     contentRef.current = newContent;
     setContent(newContent);
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'DocContentUpdate',
-        content: newContent,
-      }));
-    }
+    scheduleSave();
   };
 
   const execCommand = (command: string, value?: string) => {
@@ -218,7 +233,10 @@ export function DocEditorPage() {
             <Button 
               className="doc-header__back" 
               icon={<LeftOutlined />} 
-              onClick={leaveDoc}
+              onClick={() => {
+                saveContent();
+                leaveDoc();
+              }}
             />
           </Tooltip>
           <div className="doc-header__title-wrap">
