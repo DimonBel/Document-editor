@@ -1,0 +1,13 @@
+# Build artifacts
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment files
+.env
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
