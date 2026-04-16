@@ -24,7 +24,7 @@ export function WhiteboardCanvas({ addElement, sendCursor, sendPreview }: Whiteb
   const { width, height } = useWindowSize();
 
   const { elements, liveElement, activeTool } = useCanvasStore();
-  const { cursors } = useCollabStore();
+  const { remotePreviews, cursors } = useCollabStore();
 
   const { onPointerDown, onPointerMove, onPointerUp } = useDrawing(stageRef, {
     addElement,
@@ -33,6 +33,8 @@ export function WhiteboardCanvas({ addElement, sendCursor, sendPreview }: Whiteb
   });
 
   const cursor = getTool(activeTool).cursor;
+
+  const remotePreviewElements = Object.values(remotePreviews);
 
   return (
     <div className="canvas-root" style={{ cursor }}>
@@ -50,6 +52,7 @@ export function WhiteboardCanvas({ addElement, sendCursor, sendPreview }: Whiteb
         <Layer>
           {elements.map((el) => renderElement(el))}
           {liveElement && renderElement(liveElement)}
+          {remotePreviewElements.map((el, i) => renderElement({ ...el, id: `remote_${el.id}_${i}` }))}
         </Layer>
 
         <LiveCursors cursors={cursors} />

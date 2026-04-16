@@ -10,8 +10,8 @@ const DEBOUNCE_MS = 50;
 
 export function useCollaboration() {
   const { roomId, clientId, clientName, setConnected } = useRoomStore();
-  const { setElements, setLiveElement } = useCanvasStore();
-  const { setUsers, addUser, removeUser, updateCursor, reset } = useCollabStore();
+  const { setElements } = useCanvasStore();
+  const { setUsers, addUser, removeUser, updateCursor, reset, setRemotePreview } = useCollabStore();
 
   const wsRef = useRef<WSClient | null>(null);
   const crdtRef = useRef<CRDTDocument | null>(null);
@@ -70,14 +70,13 @@ export function useCollaboration() {
           case 'preview': {
             if (data.senderId !== clientId) {
               const element = data.element as DrawElement;
-              const preview: DrawElement = { ...element, id: `preview_${data.senderId}` };
-              setLiveElement(preview);
+              setRemotePreview(data.senderId as string, element);
             }
             break;
           }
           case 'preview_clear': {
             if (data.senderId !== clientId) {
-              setLiveElement(null);
+              setRemotePreview(data.senderId as string, null);
             }
             break;
           }
@@ -109,7 +108,7 @@ export function useCollaboration() {
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
       pendingOpsRef.current = [];
     };
-  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setLiveElement]);
+  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setRemotePreview]);
 
   const addElement = useCallback((type: string, data: Record<string, unknown>) => {
     const crdt = crdtRef.current;
