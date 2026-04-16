@@ -18,7 +18,7 @@ async fn main() -> std::io::Result<()> {
 
     let cfg = config::Config::from_env();
     let room_manager = web::Data::new(Arc::new(Mutex::new(RoomManager::new())));
-    let doc_manager = web::Data::new(Arc::new(Mutex::new(DocumentManager::new())));
+    let doc_manager = web::Data::new(Arc::new(Mutex::new(DocumentManager::new(std::path::PathBuf::from("data")))));
 
     log::info!("Starting server at {}:{}", cfg.host, cfg.port);
 

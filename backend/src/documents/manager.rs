@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
 use actix::Recipient;
 use chrono::{DateTime, Utc};
@@ -6,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::broadcast::dispatcher::OutboundMessage;
-use crate::documents::crdt::{TextDocument, TextOp};
 use crate::models::client::ClientInfo;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -26,6 +27,14 @@ pub struct TextContent {
     pub version: u64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DocumentData {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
+
 struct DocumentClient {
     info: ClientInfo,
     addr: Recipient<OutboundMessage>,
@@ -34,8 +43,8 @@ struct DocumentClient {
 struct Document {
     id: String,
     title: String,
+    content: String,
     clients: HashMap<String, DocumentClient>,
-    text_doc: TextDocument,
     created_at: DateTime<Utc>,
 }
 
@@ -53,8 +62,7 @@ impl Document {
         serde_json::json!({
             "type": "doc_sync",
             "docId": self.id,
-            "content": self.text_doc.content(),
-            "version": self.text_doc.version(),
+            "content": self.content,
             "clients": self.clients.values().map(|c| &c.info).cloned().collect::<Vec<_>>(),
         })
         .to_string()
@@ -77,12 +85,73 @@ impl Document {
 
 pub struct DocumentManager {
     documents: HashMap<String, Document>,
+    data_path: PathBuf,
 }
 
 impl DocumentManager {
-    pub fn new() -> Self {
+    pub fn new(data_dir: PathBuf) -> Self {
+        let data_path = data_dir.join("documents.json");
+        let documents = if data_path.exists() {
+            match fs::read_to_string(&data_path) {
+                Ok(content) => match serde_json::from_str::<Vec<DocumentData>>(&content) {
+                    Ok(docs) => docs
+                        .into_iter()
+                        .map(|d| {
+                            let doc = Document {
+                                id: d.id,
+                                title: d.title,
+                                content: d.content,
+                                clients: HashMap::new(),
+                                created_at: d.created_at,
+                            };
+                            (doc.id.clone(), doc)
+                        })
+                        .collect(),
+                    Err(e) => {
+                        log::warn!("Failed to parse documents.json: {}", e);
+                        HashMap::new()
+                    }
+                },
+                Err(e) => {
+                    log::warn!("Failed to read documents.json: {}", e);
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+
+        if let Some(parent) = data_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
         DocumentManager {
-            documents: HashMap::new(),
+            documents,
+            data_path,
+        }
+    }
+
+    fn save_to_file(&self) {
+        let docs: Vec<DocumentData> = self
+            .documents
+            .values()
+            .map(|d| DocumentData {
+                id: d.id.clone(),
+                title: d.title.clone(),
+                content: d.content.clone(),
+                created_at: d.created_at,
+            })
+            .collect();
+
+        match serde_json::to_string_pretty(&docs) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&self.data_path, json) {
+                    log::error!("Failed to save documents: {}", e);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to serialize documents: {}", e);
+            }
         }
     }
 
@@ -92,11 +161,12 @@ impl DocumentManager {
         let doc = Document {
             id: id.clone(),
             title: title.clone(),
+            content: String::new(),
             clients: HashMap::new(),
-            text_doc: TextDocument::new(),
             created_at: now,
         };
         self.documents.insert(id.clone(), doc);
+        self.save_to_file();
         DocumentInfo {
             id,
             title,
@@ -107,6 +177,10 @@ impl DocumentManager {
 
     pub fn get_document(&self, doc_id: &str) -> Option<DocumentInfo> {
         self.documents.get(doc_id).map(|d| d.info())
+    }
+
+    pub fn get_content(&self, doc_id: &str) -> Option<String> {
+        self.documents.get(doc_id).map(|d| d.content.clone())
     }
 
     pub fn list_documents(&self) -> Vec<DocumentInfo> {
@@ -154,20 +228,29 @@ impl DocumentManager {
         doc.broadcast_all(&msg);
     }
 
-    pub fn apply_text_op(&mut self, doc_id: &str, sender_id: &str, op: TextOp) {
-        let Some(doc) = self.documents.get_mut(doc_id) else {
-            return;
+    pub fn update_content(&mut self, doc_id: &str, sender_id: &str, content: String) {
+        let (clients_addr, new_content) = {
+            let Some(doc) = self.documents.get_mut(doc_id) else {
+                return;
+            };
+
+            doc.content = content.clone();
+            let clients: Vec<_> = doc.clients.values().map(|c| c.addr.clone()).collect();
+            (clients, content.clone())
         };
 
-        doc.text_doc.apply(op.clone());
+        self.save_to_file();
 
         let msg = serde_json::json!({
             "type": "doc_content_update",
-            "content": doc.text_doc.content(),
+            "content": new_content,
             "senderId": sender_id,
         })
         .to_string();
-        doc.broadcast_except(sender_id, &msg);
+
+        for addr in clients_addr {
+            let _ = addr.do_send(OutboundMessage(msg.clone()));
+        }
     }
 
     pub fn announce_doc_join(&self, doc_id: &str, joiner_id: &str, joiner_name: &str) {
@@ -180,27 +263,5 @@ impl DocumentManager {
         })
         .to_string();
         doc.broadcast_except(joiner_id, &msg);
-    }
-
-    pub fn broadcast_cursor(
-        &self,
-        doc_id: &str,
-        client_id: &str,
-        name: &str,
-        position: usize,
-        selection: Option<serde_json::Value>,
-    ) {
-        let Some(doc) = self.documents.get(doc_id) else {
-            return;
-        };
-        let msg = serde_json::json!({
-            "type": "doc_cursor_update",
-            "clientId": client_id,
-            "name": name,
-            "position": position,
-            "selection": selection,
-        })
-        .to_string();
-        doc.broadcast_except(client_id, &msg);
     }
 }

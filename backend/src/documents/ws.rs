@@ -7,7 +7,6 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::broadcast::dispatcher::OutboundMessage;
-use crate::documents::crdt::TextOp;
 use crate::documents::manager::DocumentManager;
 
 #[derive(Deserialize)]
@@ -20,15 +19,8 @@ enum InboundDocMsg {
         client_id: String,
         name: String,
     },
-    DocOperation {
-        op: TextOp,
-    },
-    DocCursorUpdate {
-        #[serde(rename = "clientId")]
-        client_id: String,
-        name: String,
-        position: usize,
-        selection: Option<serde_json::Value>,
+    DocContentUpdate {
+        content: String,
     },
 }
 
@@ -110,20 +102,11 @@ impl DocWsSession {
                 }
             }
 
-            InboundDocMsg::DocOperation { op } => {
-                let mut safe_op = op;
-                safe_op.client_id = self.id.clone();
+            InboundDocMsg::DocContentUpdate { content } => {
                 self.docs
                     .lock()
                     .unwrap()
-                    .apply_text_op(&self.doc_id, &self.id, safe_op);
-            }
-
-            InboundDocMsg::DocCursorUpdate { client_id, name, position, selection } => {
-                self.docs
-                    .lock()
-                    .unwrap()
-                    .broadcast_cursor(&self.doc_id, &client_id, &name, position, selection);
+                    .update_content(&self.doc_id, &self.id, content);
             }
         }
     }
