@@ -52,7 +52,9 @@ export function DocEditorPage() {
 
     const connect = () => {
       try {
-        ws = new WebSocket(`/ws/doc/${docId}`);
+        const host = window.location.hostname;
+        const wsUrl = `ws://${host}:8080/ws/doc/${docId}`;
+        ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
