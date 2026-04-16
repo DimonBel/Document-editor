@@ -1,27 +1,47 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Typography } from 'antd';
 import { FormOutlined, FileTextOutlined } from '@ant-design/icons';
 import { WhiteboardPage } from './pages/WhiteboardPage';
 import { DocEditorPage } from './pages/DocEditorPage';
+import { DocSelector } from './features/doc/DocSelector';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
+import { useDocStore } from './store/docStore';
 
 const { Title, Text } = Typography;
 
-type AppMode = 'home' | 'room' | 'doc';
+type AppMode = 'home' | 'room' | 'doc-cabinet' | 'doc';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('home');
+  const docId = useDocStore((s) => s.docId);
+
+  const goToCabinet = () => {
+    useDocStore.getState().leaveDoc();
+    setMode('doc-cabinet');
+  };
+
+  const goHome = () => {
+    useDocStore.getState().leaveDoc();
+    setMode('home');
+  };
+
+  useEffect(() => {
+    if (docId && mode === 'doc-cabinet') {
+      setMode('doc');
+    }
+  }, [docId, mode]);
 
   return (
     <ErrorBoundary>
       {mode === 'home' && (
         <HomeScreen
           onWhiteboard={() => setMode('room')}
-          onDocument={() => setMode('doc')}
+          onDocument={goToCabinet}
         />
       )}
-      {mode === 'room' && <WhiteboardPageWrapper onBack={() => setMode('home')} />}
-      {mode === 'doc' && <DocEditorPageWrapper onBack={() => setMode('home')} />}
+      {mode === 'room' && <WhiteboardPageWrapper onBack={goHome} />}
+      {mode === 'doc-cabinet' && <DocCabinetWrapper onBack={goHome} />}
+      {mode === 'doc' && <DocEditorPageWrapper onBack={goToCabinet} />}
     </ErrorBoundary>
   );
 }
@@ -39,40 +59,42 @@ function HomeScreen({ onWhiteboard, onDocument }: HomeScreenProps) {
       justifyContent: 'center',
       minHeight: '100vh',
       padding: '24px',
-      background: 'var(--color-neutral-100)',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     }}>
       <Card style={{
         width: '100%',
-        maxWidth: '400px',
-        background: 'var(--color-neutral-0)',
-        borderRadius: 'var(--radius-xl)',
-        boxShadow: 'var(--shadow-lg)',
-        border: '1px solid var(--color-neutral-200)',
+        maxWidth: '420px',
+        background: 'white',
+        borderRadius: '16px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        border: 'none',
         overflow: 'hidden',
       }}>
         <div style={{
-          padding: '48px 24px 32px',
+          padding: '40px 32px 28px',
           textAlign: 'center',
-          borderBottom: '1px solid var(--color-neutral-100)',
+          borderBottom: '1px solid #eee',
         }}>
           <div style={{
-            width: '48px',
-            height: '48px',
-            margin: '0 auto 16px',
+            width: '64px',
+            height: '64px',
+            margin: '0 auto 20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'var(--color-brand-50)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--color-brand-600)',
-            fontSize: '24px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '16px',
+            color: 'white',
+            fontSize: '28px',
           }}>
             <FileTextOutlined />
           </div>
-          <Title level={2} style={{ marginBottom: '4px' }}>
+          <Title level={2} style={{ marginBottom: '8px', color: '#1a1a2e' }}>
             Collaboration Hub
           </Title>
-          <Text type="secondary">Choose what you want to use</Text>
+          <Text type="secondary" style={{ fontSize: '15px' }}>
+            Choose what you want to use
+          </Text>
         </div>
 
         <div style={{ padding: '24px' }}>
@@ -81,34 +103,42 @@ function HomeScreen({ onWhiteboard, onDocument }: HomeScreenProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '16px',
               width: '100%',
-              padding: '16px',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--color-neutral-200)',
+              padding: '20px',
+              borderRadius: '12px',
+              border: '2px solid #e8e8e8',
               marginBottom: '12px',
-              background: 'var(--color-neutral-0)',
+              background: 'white',
               cursor: 'pointer',
-              transition: 'all 120ms ease',
+              transition: 'all 150ms ease',
               textAlign: 'left',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.borderColor = '#667eea';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.2)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.borderColor = '#e8e8e8';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
             <div style={{
-              width: '40px',
-              height: '40px',
+              width: '48px',
+              height: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'var(--color-brand-50)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--color-brand-600)',
-              fontSize: '20px',
+              background: '#f0f4ff',
+              borderRadius: '12px',
+              color: '#667eea',
+              fontSize: '22px',
             }}>
               <FormOutlined />
             </div>
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--color-neutral-900)' }}>Whiteboard</div>
-              <div style={{ fontSize: '12px', color: 'var(--color-neutral-500)' }}>Draw and sketch together</div>
+              <div style={{ fontWeight: 600, fontSize: '16px', color: '#1a1a2e' }}>Whiteboard</div>
+              <div style={{ fontSize: '13px', color: '#666' }}>Draw and sketch together in real-time</div>
             </div>
           </button>
 
@@ -117,33 +147,41 @@ function HomeScreen({ onWhiteboard, onDocument }: HomeScreenProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '16px',
               width: '100%',
-              padding: '16px',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--color-neutral-200)',
-              background: 'var(--color-neutral-0)',
+              padding: '20px',
+              borderRadius: '12px',
+              border: '2px solid #e8e8e8',
+              background: 'white',
               cursor: 'pointer',
-              transition: 'all 120ms ease',
+              transition: 'all 150ms ease',
               textAlign: 'left',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.borderColor = '#764ba2';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(118, 75, 162, 0.2)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.borderColor = '#e8e8e8';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
             <div style={{
-              width: '40px',
-              height: '40px',
+              width: '48px',
+              height: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'var(--color-brand-50)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--color-brand-600)',
-              fontSize: '20px',
+              background: '#f5f0ff',
+              borderRadius: '12px',
+              color: '#764ba2',
+              fontSize: '22px',
             }}>
               <FileTextOutlined />
             </div>
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--color-neutral-900)' }}>Documents</div>
-              <div style={{ fontSize: '12px', color: 'var(--color-neutral-500)' }}>Edit text documents together</div>
+              <div style={{ fontWeight: 600, fontSize: '16px', color: '#1a1a2e' }}>Documents</div>
+              <div style={{ fontSize: '13px', color: '#666' }}>Edit text documents together like Google Docs</div>
             </div>
           </button>
         </div>
@@ -167,12 +205,13 @@ function WhiteboardPageWrapper({ onBack }: WrapperProps) {
           left: '12px',
           zIndex: 500,
           padding: '8px 16px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--color-neutral-200)',
-          background: 'rgba(255,255,255,0.9)',
+          borderRadius: '8px',
+          border: '1px solid #ddd',
+          background: 'rgba(255,255,255,0.95)',
           backdropFilter: 'blur(8px)',
           cursor: 'pointer',
           fontSize: '13px',
+          fontWeight: 500,
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
@@ -181,6 +220,36 @@ function WhiteboardPageWrapper({ onBack }: WrapperProps) {
         ← Home
       </button>
       <WhiteboardPage />
+    </div>
+  );
+}
+
+function DocCabinetWrapper({ onBack }: WrapperProps) {
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          position: 'fixed',
+          top: '12px',
+          left: '12px',
+          zIndex: 500,
+          padding: '8px 16px',
+          borderRadius: '8px',
+          border: '1px solid #ddd',
+          background: 'rgba(255,255,255,0.95)',
+          backdropFilter: 'blur(8px)',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        ← Home
+      </button>
+      <DocSelector />
     </div>
   );
 }
@@ -196,18 +265,19 @@ function DocEditorPageWrapper({ onBack }: WrapperProps) {
           left: '12px',
           zIndex: 500,
           padding: '8px 16px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--color-neutral-200)',
-          background: 'rgba(255,255,255,0.9)',
+          borderRadius: '8px',
+          border: '1px solid #ddd',
+          background: 'rgba(255,255,255,0.95)',
           backdropFilter: 'blur(8px)',
           cursor: 'pointer',
           fontSize: '13px',
+          fontWeight: 500,
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
         }}
       >
-        ← Home
+        ← Back to Cabinet
       </button>
       <DocEditorPage />
     </div>
