@@ -157,13 +157,15 @@ export function DocEditorPage() {
 
         case 'doc_content_update':
           if (data.senderId !== clientId && data.content !== undefined) {
-            isLocalChangeRef.current = true;
-            if (editorRef.current) {
-              editorRef.current.innerText = data.content;
-            }
-            contentRef.current = data.content;
-            setContent(data.content);
-            isLocalChangeRef.current = false;
+            setTimeout(() => {
+              isLocalChangeRef.current = true;
+              if (editorRef.current) {
+                editorRef.current.innerText = data.content;
+              }
+              contentRef.current = data.content;
+              setContent(data.content);
+              isLocalChangeRef.current = false;
+            }, 50);
           }
           break;
 
