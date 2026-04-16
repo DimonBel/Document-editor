@@ -73,7 +73,7 @@ export function DocSelector() {
       <div className="doc-cabinet__content">
         {loading ? (
           <div className="doc-cabinet__loading">
-            <Spin size="large" tip="Loading documents..." />
+            <Spin size="large" />
           </div>
         ) : error ? (
           <div className="doc-cabinet__error">
