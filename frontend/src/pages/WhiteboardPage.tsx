@@ -12,7 +12,7 @@ import './WhiteboardPage.css';
 export function WhiteboardPage() {
   const { roomName, connected, leaveRoom } = useRoomStore();
 
-  const { addElement, sendCursor } = useCollaboration();
+  const { addElement, sendCursor, sendPreview } = useCollaboration();
 
   const connectionStatus = connected ? 'connected' : 'reconnecting';
 
@@ -38,7 +38,7 @@ export function WhiteboardPage() {
       <UsersList />
 
       <ErrorBoundary>
-        <WhiteboardCanvas addElement={addElement} sendCursor={sendCursor} />
+        <WhiteboardCanvas addElement={addElement} sendCursor={sendCursor} sendPreview={sendPreview} />
       </ErrorBoundary>
     </div>
   );

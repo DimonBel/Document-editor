@@ -51,6 +51,14 @@ impl Room {
             client.addr.do_send(OutboundMessage(msg.to_owned()));
         }
     }
+
+    fn broadcast_to_room_except(&self, sender_id: &str, msg: &str) {
+        for (id, client) in &self.clients {
+            if id != sender_id {
+                client.addr.do_send(OutboundMessage(msg.to_owned()));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +137,12 @@ impl RoomManager {
             },
         );
 
-        let elements: Vec<_> = room.document.ordered_elements().into_iter().cloned().collect();
+        let elements: Vec<_> = room
+            .document
+            .ordered_elements()
+            .into_iter()
+            .cloned()
+            .collect();
         let clients: Vec<_> = room.clients.values().map(|c| &c.info).cloned().collect();
 
         serde_json::json!({
@@ -173,12 +186,7 @@ impl RoomManager {
         room.broadcast_except(sender_id, &msg);
     }
 
-    pub fn broadcast_cursor(
-        &self,
-        room_id: &str,
-        sender_id: &str,
-        cursor_msg: serde_json::Value,
-    ) {
+    pub fn broadcast_cursor(&self, room_id: &str, sender_id: &str, cursor_msg: serde_json::Value) {
         let Some(room) = self.rooms.get(room_id) else {
             return;
         };
@@ -195,5 +203,12 @@ impl RoomManager {
         })
         .to_string();
         room.broadcast_except(joiner_id, &msg);
+    }
+
+    pub fn broadcast_to_room_except(&self, room_id: &str, sender_id: &str, msg: serde_json::Value) {
+        let Some(room) = self.rooms.get(room_id) else {
+            return;
+        };
+        room.broadcast_to_room_except(sender_id, &msg.to_string());
     }
 }

@@ -16,9 +16,10 @@ const HEADER_HEIGHT = 56;
 interface WhiteboardCanvasProps {
   addElement: (type: string, data: Record<string, unknown>) => void;
   sendCursor: (pos: Point) => void;
+  sendPreview: (draft: import('../../types').DraftResult | null) => void;
 }
 
-export function WhiteboardCanvas({ addElement, sendCursor }: WhiteboardCanvasProps) {
+export function WhiteboardCanvas({ addElement, sendCursor, sendPreview }: WhiteboardCanvasProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
   const { width, height } = useWindowSize();
 
@@ -28,6 +29,7 @@ export function WhiteboardCanvas({ addElement, sendCursor }: WhiteboardCanvasPro
   const { onPointerDown, onPointerMove, onPointerUp } = useDrawing(stageRef, {
     addElement,
     sendCursor,
+    sendPreview,
   });
 
   const cursor = getTool(activeTool).cursor;

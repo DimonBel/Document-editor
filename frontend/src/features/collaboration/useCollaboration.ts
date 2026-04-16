@@ -4,13 +4,13 @@ import { CRDTDocument } from '../../core/crdt/CRDTDocument';
 import { useRoomStore } from '../../store/roomStore';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useCollabStore } from '../../store/collabStore';
-import { DrawElement, Point, Operation } from '../../types';
+import { DrawElement, Point, Operation, DraftResult } from '../../types';
 
 const DEBOUNCE_MS = 50;
 
 export function useCollaboration() {
   const { roomId, clientId, clientName, setConnected } = useRoomStore();
-  const { setElements } = useCanvasStore();
+  const { setElements, setLiveElement } = useCanvasStore();
   const { setUsers, addUser, removeUser, updateCursor, reset } = useCollabStore();
 
   const wsRef = useRef<WSClient | null>(null);
@@ -67,6 +67,20 @@ export function useCollaboration() {
             }
             break;
           }
+          case 'preview': {
+            if (data.senderId !== clientId) {
+              const element = data.element as DrawElement;
+              const preview: DrawElement = { ...element, id: `preview_${data.senderId}` };
+              setLiveElement(preview);
+            }
+            break;
+          }
+          case 'preview_clear': {
+            if (data.senderId !== clientId) {
+              setLiveElement(null);
+            }
+            break;
+          }
           case 'cursor': {
             if (data.clientId !== clientId) {
               updateCursor(data.clientId as string, { ...(data.position as Point), name: data.name as string | undefined });
@@ -95,7 +109,7 @@ export function useCollaboration() {
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
       pendingOpsRef.current = [];
     };
-  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending]);
+  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setLiveElement]);
 
   const addElement = useCallback((type: string, data: Record<string, unknown>) => {
     const crdt = crdtRef.current;
@@ -108,6 +122,14 @@ export function useCollaboration() {
     scheduleFlush();
   }, [setElements, scheduleFlush]);
 
+  const sendPreview = useCallback((draft: DraftResult | null) => {
+    wsRef.current?.send({
+      type: draft ? 'preview' : 'preview_clear',
+      senderId: clientId,
+      element: draft ? { ...draft, id: '' } : null,
+    });
+  }, [clientId]);
+
   const sendCursor = useCallback((position: Point) => {
     wsRef.current?.send({
       type: 'cursor',
@@ -117,5 +139,5 @@ export function useCollaboration() {
     });
   }, [clientId, clientName]);
 
-  return { addElement, sendCursor };
+  return { addElement, sendCursor, sendPreview };
 }

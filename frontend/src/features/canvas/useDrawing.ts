@@ -8,11 +8,12 @@ import Konva from 'konva';
 interface UseDrawingProps {
   addElement: (type: string, data: Record<string, unknown>) => void;
   sendCursor: (pos: Point) => void;
+  sendPreview: (draft: DraftResult | null) => void;
 }
 
 export function useDrawing(
   stageRef: RefObject<Konva.Stage | null>,
-  { addElement, sendCursor }: UseDrawingProps
+  { addElement, sendCursor, sendPreview }: UseDrawingProps
 ) {
   const draftRef = useRef<DraftResult | null>(null);
 
@@ -35,12 +36,18 @@ export function useDrawing(
     const pos = getPointerPos();
     sendCursor(pos);
 
-    if (!draftRef.current) return;
+    if (!draftRef.current) {
+      sendPreview(null);
+      return;
+    }
     const tool = getTool(activeTool);
     const updated = tool.onMove({ draft: draftRef.current, pos });
     draftRef.current = updated;
-    setLiveElement(updated ? { ...updated, id: '__live__' } as DrawElement : null);
-  }, [activeTool, sendCursor, setLiveElement]);
+    if (updated) {
+      setLiveElement({ ...updated, id: '__live__' } as DrawElement);
+      sendPreview(updated);
+    }
+  }, [activeTool, sendCursor, setLiveElement, sendPreview]);
 
   const onPointerUp = useCallback(() => {
     if (!draftRef.current) return;
@@ -55,7 +62,8 @@ export function useDrawing(
 
     draftRef.current = null;
     setLiveElement(null);
-  }, [activeTool, addElement, setLiveElement]);
+    sendPreview(null);
+  }, [activeTool, addElement, setLiveElement, sendPreview]);
 
   return { onPointerDown, onPointerMove, onPointerUp };
 }

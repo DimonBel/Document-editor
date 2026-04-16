@@ -25,6 +25,15 @@ enum InboundMsg {
     Operation {
         operation: Operation,
     },
+    Preview {
+        #[serde(rename = "senderId")]
+        sender_id: String,
+        element: serde_json::Value,
+    },
+    PreviewClear {
+        #[serde(rename = "senderId")]
+        sender_id: String,
+    },
     Cursor {
         #[serde(rename = "clientId")]
         client_id: String,
@@ -116,6 +125,31 @@ impl WsSession {
                     .lock()
                     .unwrap()
                     .apply_operation(&room_id, &sender_id, operation);
+            }
+
+            InboundMsg::Preview { sender_id, element } => {
+                let room_id = self.room_id.clone();
+                let preview_msg = serde_json::json!({
+                    "type": "preview",
+                    "senderId": sender_id,
+                    "element": element,
+                });
+                self.rooms
+                    .lock()
+                    .unwrap()
+                    .broadcast_to_room_except(&room_id, &sender_id, preview_msg);
+            }
+
+            InboundMsg::PreviewClear { sender_id } => {
+                let room_id = self.room_id.clone();
+                let preview_msg = serde_json::json!({
+                    "type": "preview_clear",
+                    "senderId": sender_id,
+                });
+                self.rooms
+                    .lock()
+                    .unwrap()
+                    .broadcast_to_room_except(&room_id, &sender_id, preview_msg);
             }
 
             InboundMsg::Cursor {
