@@ -1,13 +1,24 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Button, Tooltip } from 'antd';
-import { LogoutOutlined } from '@ant-design/icons';
+import { Button, Tooltip, message } from 'antd';
+import { 
+  LeftOutlined, 
+  BoldOutlined,
+  ItalicOutlined,
+  UnderlineOutlined,
+  StrikethroughOutlined,
+  AlignLeftOutlined,
+  AlignCenterOutlined,
+  AlignRightOutlined,
+  UnorderedListOutlined,
+  OrderedListOutlined,
+  ShareAltOutlined,
+} from '@ant-design/icons';
 import { useDocStore } from '../store/docStore';
 import './DocEditorPage.css';
 
-interface RemoteCursor {
+interface RemoteUser {
   clientId: string;
   name: string;
-  position: number;
   color: string;
 }
 
@@ -23,15 +34,14 @@ function getCursorColor(clientId: string): string {
 
 export function DocEditorPage() {
   const { docId, docTitle, content, connected, leaveDoc, clientId, setContent } = useDocStore();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
+  const [remoteUsers, setRemoteUsers] = useState<Record<string, RemoteUser>>({});
   const contentRef = useRef(content);
-  const selectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const pendingOpsRef = useRef<Array<{ type: 'insert' | 'delete'; position: number; text?: string; length?: number }>>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const versionRef = useRef(0);
   const clientName = useDocStore.getState().clientName;
+  const isLocalChangeRef = useRef(false);
 
   useEffect(() => {
     contentRef.current = content;
@@ -41,7 +51,7 @@ export function DocEditorPage() {
     const ws = wsRef.current;
     if (!ws || pendingOpsRef.current.length === 0 || !connected) return;
 
-    const ops = pendingOpsRef.current;
+    const ops = [...pendingOpsRef.current];
     pendingOpsRef.current = [];
 
     for (const op of ops) {
@@ -65,10 +75,13 @@ export function DocEditorPage() {
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null;
       flushOps();
-    }, 16);
+    }, 50);
   }, [flushOps]);
 
   const applyRemoteOp = useCallback((op: any) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
     const currentContent = contentRef.current;
     let newContent = currentContent;
 
@@ -85,7 +98,10 @@ export function DocEditorPage() {
     if (newContent !== currentContent) {
       contentRef.current = newContent;
       setContent(newContent);
-      versionRef.current++;
+      if (editor.innerText !== newContent) {
+        isLocalChangeRef.current = true;
+        editor.innerText = newContent;
+      }
     }
   }, [setContent]);
 
@@ -93,8 +109,7 @@ export function DocEditorPage() {
     if (!docId) return;
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ws = new WebSocket(`${proto}//${host}/ws/doc/${docId}`);
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/doc/${docId}`);
 
     ws.onopen = () => {
       useDocStore.getState().setConnected(true);
@@ -113,21 +128,24 @@ export function DocEditorPage() {
         case 'doc_sync':
           contentRef.current = data.content || '';
           setContent(data.content || '');
-          versionRef.current = data.version || 0;
+          
+          if (editorRef.current && editorRef.current.innerText !== data.content) {
+            isLocalChangeRef.current = true;
+            editorRef.current.innerText = data.content || '';
+          }
           
           if (data.clients) {
-            const cursors: Record<string, RemoteCursor> = {};
+            const users: Record<string, RemoteUser> = {};
             data.clients.forEach((c: any) => {
               if (c.id !== clientId) {
-                cursors[c.id] = {
+                users[c.id] = {
                   clientId: c.id,
                   name: c.name,
-                  position: 0,
                   color: getCursorColor(c.id),
                 };
               }
             });
-            setRemoteCursors(cursors);
+            setRemoteUsers(users);
           }
           break;
 
@@ -139,12 +157,11 @@ export function DocEditorPage() {
 
         case 'doc_cursor_update':
           if (data.clientId !== clientId) {
-            setRemoteCursors(prev => ({
+            setRemoteUsers(prev => ({
               ...prev,
               [data.clientId]: {
                 clientId: data.clientId,
                 name: data.name,
-                position: data.position,
                 color: getCursorColor(data.clientId),
               }
             }));
@@ -153,23 +170,25 @@ export function DocEditorPage() {
 
         case 'doc_user_joined':
           if (data.client && data.client.id !== clientId) {
-            setRemoteCursors(prev => ({
+            setRemoteUsers(prev => ({
               ...prev,
               [data.client.id]: {
                 clientId: data.client.id,
                 name: data.client.name,
-                position: 0,
                 color: getCursorColor(data.client.id),
               }
             }));
+            message.info(`${data.client.name} joined`);
           }
           break;
 
         case 'doc_user_left':
           if (data.clientId) {
-            setRemoteCursors(prev => {
+            setRemoteUsers(prev => {
               const next = { ...prev };
+              const name = next[data.clientId]?.name;
               delete next[data.clientId];
+              if (name) message.info(`${name} left`);
               return next;
             });
           }
@@ -177,13 +196,8 @@ export function DocEditorPage() {
       }
     };
 
-    ws.onclose = () => {
-      useDocStore.getState().setConnected(false);
-    };
-
-    ws.onerror = () => {
-      useDocStore.getState().setConnected(false);
-    };
+    ws.onclose = () => useDocStore.getState().setConnected(false);
+    ws.onerror = () => useDocStore.getState().setConnected(false);
 
     wsRef.current = ws;
 
@@ -193,35 +207,22 @@ export function DocEditorPage() {
     };
   }, [docId, clientId, clientName, applyRemoteOp, setContent]);
 
-  const handleSelectionChange = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || !wsRef.current || !connected) return;
-
-    const newSelection = {
-      start: textarea.selectionStart,
-      end: textarea.selectionEnd,
-    };
-    
-    if (newSelection.start !== selectionRef.current.start || newSelection.end !== selectionRef.current.end) {
-      selectionRef.current = newSelection;
-      
-      wsRef.current.send(JSON.stringify({
-        type: 'DocCursorUpdate',
-        clientId,
-        name: clientName,
-        position: newSelection.start,
-        selection: newSelection,
-      }));
+  const handleInput = () => {
+    if (isLocalChangeRef.current) {
+      isLocalChangeRef.current = false;
+      return;
     }
-  }, [clientId, clientName, connected]);
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const newContent = editor.innerText;
     const oldContent = contentRef.current;
+
+    if (newContent === oldContent) return;
 
     const minLen = Math.min(oldContent.length, newContent.length);
     let pos = 0;
-    
     while (pos < minLen && oldContent[pos] === newContent[pos]) pos++;
 
     if (newContent.length > oldContent.length) {
@@ -234,54 +235,105 @@ export function DocEditorPage() {
 
     contentRef.current = newContent;
     setContent(newContent);
-    handleSelectionChange();
     scheduleFlush();
+
+    wsRef.current?.send(JSON.stringify({
+      type: 'DocCursorUpdate',
+      clientId,
+      name: clientName,
+      position: 0,
+    }));
   };
 
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+  const execCmd = (cmd: string, val?: string) => {
+    document.execCommand(cmd, false, val);
+    editorRef.current?.focus();
+  };
 
-    textarea.addEventListener('select', handleSelectionChange);
-    textarea.addEventListener('click', handleSelectionChange);
-    textarea.addEventListener('keyup', handleSelectionChange);
+  const shareDoc = () => {
+    const url = `${window.location.origin}/doc/${docId}`;
+    navigator.clipboard.writeText(url);
+    message.success('Document link copied to clipboard!');
+  };
 
-    return () => {
-      textarea.removeEventListener('select', handleSelectionChange);
-      textarea.removeEventListener('click', handleSelectionChange);
-      textarea.removeEventListener('keyup', handleSelectionChange);
-    };
-  }, [handleSelectionChange]);
+  const userCount = Object.keys(remoteUsers).length;
 
   return (
     <div className="doc-page">
       <header className="doc-header">
-        <span className="doc-header__title">{docTitle}</span>
-        <div className="doc-header__users">
-          {Object.values(remoteCursors).map(c => (
-            <span key={c.clientId} style={{ color: c.color, marginLeft: 8 }}>
-              {c.name}
-            </span>
-          ))}
+        <div className="doc-header__left">
+          <Button type="text" icon={<LeftOutlined />} onClick={leaveDoc} />
+          <span className="doc-header__title">{docTitle}</span>
         </div>
-        <span className={`doc-header__status ${connected ? 'doc-header__status--connected' : 'doc-header__status--disconnected'}`}>
-          {connected ? 'Connected' : 'Connecting...'}
-        </span>
-        <Tooltip title="Leave document">
-          <Button className="wb-header__leave" icon={<LogoutOutlined />} onClick={leaveDoc} />
-        </Tooltip>
+        
+        <div className="doc-header__toolbar">
+          <Tooltip title="Bold (Ctrl+B)">
+            <Button type="text" icon={<BoldOutlined />} onClick={() => execCmd('bold')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Italic (Ctrl+I)">
+            <Button type="text" icon={<ItalicOutlined />} onClick={() => execCmd('italic')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Underline (Ctrl+U)">
+            <Button type="text" icon={<UnderlineOutlined />} onClick={() => execCmd('underline')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Strikethrough">
+            <Button type="text" icon={<StrikethroughOutlined />} onClick={() => execCmd('strikeThrough')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <div className="doc-toolbar__divider" />
+          <Tooltip title="Bullet List">
+            <Button type="text" icon={<UnorderedListOutlined />} onClick={() => execCmd('insertUnorderedList')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Numbered List">
+            <Button type="text" icon={<OrderedListOutlined />} onClick={() => execCmd('insertOrderedList')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <div className="doc-toolbar__divider" />
+          <Tooltip title="Align Left">
+            <Button type="text" icon={<AlignLeftOutlined />} onClick={() => execCmd('justifyLeft')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Align Center">
+            <Button type="text" icon={<AlignCenterOutlined />} onClick={() => execCmd('justifyCenter')} className="doc-toolbar__btn" />
+          </Tooltip>
+          <Tooltip title="Align Right">
+            <Button type="text" icon={<AlignRightOutlined />} onClick={() => execCmd('justifyRight')} className="doc-toolbar__btn" />
+          </Tooltip>
+        </div>
+
+        <div className="doc-header__right">
+          <div className="doc-header__collaborators">
+            {Object.values(remoteUsers).slice(0, 3).map(user => (
+              <Tooltip key={user.clientId} title={user.name}>
+                <span className="doc-header__avatar" style={{ backgroundColor: user.color }}>
+                  {user.name.charAt(0).toUpperCase()}
+                </span>
+              </Tooltip>
+            ))}
+            {userCount > 3 && (
+              <span className="doc-header__avatar doc-header__avatar--more">+{userCount - 3}</span>
+            )}
+            {userCount > 0 && (
+              <span className="doc-header__collab-count">{userCount} collaborator{userCount > 1 ? 's' : ''}</span>
+            )}
+          </div>
+          <Tooltip title="Share document">
+            <Button type="text" icon={<ShareAltOutlined />} onClick={shareDoc} />
+          </Tooltip>
+          <span className={`doc-header__status ${connected ? 'doc-header__status--connected' : ''}`}>
+            {connected ? '● Connected' : '○ Connecting...'}
+          </span>
+        </div>
       </header>
 
-      <div className="doc-editor-wrap">
-        <textarea
-          ref={textareaRef}
-          className="doc-textarea"
-          value={content}
-          onChange={handleTextChange}
-          onSelect={handleSelectionChange}
-          onClick={handleSelectionChange}
-          placeholder="Start typing... Open another browser window to collaborate!"
-        />
+      <div className="doc-editor-container">
+        <div className="doc-editor-paper">
+          <div
+            ref={editorRef}
+            className="doc-editor-content"
+            contentEditable
+            suppressContentEditableWarning
+            onInput={handleInput}
+            spellCheck={false}
+          />
+        </div>
       </div>
     </div>
   );
