@@ -235,7 +235,12 @@ impl DocumentManager {
             };
 
             doc.content = content.clone();
-            let clients: Vec<_> = doc.clients.values().map(|c| c.addr.clone()).collect();
+            let clients: Vec<_> = doc
+                .clients
+                .iter()
+                .filter(|(id, _)| *id != sender_id)
+                .map(|(_, c)| c.addr.clone())
+                .collect();
             (clients, content.clone())
         };
 

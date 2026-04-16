@@ -51,11 +51,8 @@ export function DocEditorPage() {
     let isMounted = true;
 
     const connect = () => {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      
       try {
-        ws = new WebSocket(`${proto}//${host}/ws/doc/${docId}`);
+        ws = new WebSocket(`/ws/doc/${docId}`);
         wsRef.current = ws;
 
         ws.onopen = () => {
