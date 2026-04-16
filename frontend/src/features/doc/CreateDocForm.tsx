@@ -6,9 +6,10 @@ import { DocInfo } from '../../types';
 interface CreateDocFormProps {
   onCreated: (doc: DocInfo) => void;
   createDoc: (title: string) => Promise<DocInfo>;
+  onCancel?: () => void;
 }
 
-export function CreateDocForm({ onCreated, createDoc }: CreateDocFormProps) {
+export function CreateDocForm({ onCreated, createDoc, onCancel }: CreateDocFormProps) {
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +45,11 @@ export function CreateDocForm({ onCreated, createDoc }: CreateDocFormProps) {
       <Button type="primary" onClick={submit} loading={loading}>
         Create
       </Button>
+      {onCancel && (
+        <Button onClick={onCancel}>
+          Cancel
+        </Button>
+      )}
     </Space.Compact>
   );
 }
