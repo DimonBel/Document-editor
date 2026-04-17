@@ -1,6 +1,6 @@
 import { DocInfo } from '../../types';
 
-const BASE = `http://${window.location.hostname}:8080/api`;
+const BASE = '/api';
 
 export class ApiError extends Error {
   status: number;

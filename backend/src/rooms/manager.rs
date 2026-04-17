@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
 use actix::Recipient;
 use chrono::Utc;
@@ -16,8 +18,15 @@ use crate::models::room::RoomInfo;
 
 struct RoomClient {
     info: ClientInfo,
-    /// Type-erased actor address; avoids a circular dependency with the WS handler.
     addr: Recipient<OutboundMessage>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RoomData {
+    id: String,
+    name: String,
+    latex_source: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 struct Room {
@@ -25,6 +34,7 @@ struct Room {
     name: String,
     clients: HashMap<String, RoomClient>,
     document: DocumentState,
+    latex_source: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -35,6 +45,15 @@ impl Room {
             name: self.name.clone(),
             created_at: self.created_at,
             client_count: self.clients.len(),
+        }
+    }
+
+    fn to_data(&self) -> RoomData {
+        RoomData {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            latex_source: self.latex_source.clone(),
+            created_at: self.created_at,
         }
     }
 
@@ -67,12 +86,66 @@ impl Room {
 
 pub struct RoomManager {
     rooms: HashMap<String, Room>,
+    data_path: PathBuf,
 }
 
 impl RoomManager {
     pub fn new() -> Self {
-        RoomManager {
-            rooms: HashMap::new(),
+        Self::with_data_dir(PathBuf::from("data"))
+    }
+
+    pub fn with_data_dir(data_dir: PathBuf) -> Self {
+        let data_path = data_dir.join("rooms.json");
+        let rooms = if data_path.exists() {
+            match fs::read_to_string(&data_path) {
+                Ok(content) => match serde_json::from_str::<Vec<RoomData>>(&content) {
+                    Ok(room_data_list) => room_data_list
+                        .into_iter()
+                        .map(|rd| {
+                            let room = Room {
+                                id: rd.id.clone(),
+                                name: rd.name.clone(),
+                                clients: HashMap::new(),
+                                document: DocumentState::new(),
+                                latex_source: rd.latex_source.clone(),
+                                created_at: rd.created_at,
+                            };
+                            (rd.id, room)
+                        })
+                        .collect(),
+                    Err(e) => {
+                        log::warn!("Failed to parse rooms.json: {}", e);
+                        HashMap::new()
+                    }
+                },
+                Err(e) => {
+                    log::warn!("Failed to read rooms.json: {}", e);
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+
+        if let Some(parent) = data_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        RoomManager { rooms, data_path }
+    }
+
+    fn save_to_file(&self) {
+        let rooms_data: Vec<RoomData> = self.rooms.values().map(|r| r.to_data()).collect();
+
+        match serde_json::to_string_pretty(&rooms_data) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&self.data_path, json) {
+                    log::error!("Failed to save rooms: {}", e);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to serialize rooms: {}", e);
+            }
         }
     }
 
@@ -88,9 +161,11 @@ impl RoomManager {
             name: name.clone(),
             clients: HashMap::new(),
             document: DocumentState::new(),
+            latex_source: None,
             created_at: now,
         };
         self.rooms.insert(id.clone(), room);
+        self.save_to_file();
         RoomInfo {
             id,
             name,
@@ -104,7 +179,7 @@ impl RoomManager {
     }
 
     pub fn list_rooms(&self) -> Vec<RoomInfo> {
-        self.rooms.values().map(Room::info).collect()
+        self.rooms.values().map(|r| r.info()).collect()
     }
 
     // -----------------------------------------------------------------------
@@ -149,6 +224,7 @@ impl RoomManager {
             "type": "sync",
             "elements": elements,
             "clients": clients,
+            "latexSource": room.latex_source,
         })
         .to_string()
     }
@@ -210,5 +286,30 @@ impl RoomManager {
             return;
         };
         room.broadcast_to_room_except(sender_id, &msg.to_string());
+    }
+
+    pub fn update_latex_source(&mut self, room_id: &str, sender_id: &str, source: String) {
+        {
+            let Some(room) = self.rooms.get_mut(room_id) else {
+                return;
+            };
+            room.latex_source = Some(source.clone());
+        }
+        self.save_to_file();
+
+        let msg = serde_json::json!({
+            "type": "latex_source",
+            "senderId": sender_id,
+            "source": source,
+        })
+        .to_string();
+
+        if let Some(room) = self.rooms.get(room_id) {
+            room.broadcast_except(sender_id, &msg);
+        }
+    }
+
+    pub fn get_latex_source(&self, room_id: &str) -> Option<String> {
+        self.rooms.get(room_id).and_then(|r| r.latex_source.clone())
     }
 }

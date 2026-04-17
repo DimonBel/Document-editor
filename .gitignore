@@ -7,7 +7,7 @@ frontend/.vite/
 # Environment files
 .env
 *.log
-
+*.claude
 # OS files
 .DS_Store
 Thumbs.db

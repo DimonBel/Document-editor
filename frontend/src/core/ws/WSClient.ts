@@ -22,8 +22,8 @@ export class WSClient {
     if (this.#destroyed) return;
     if (this.#ws?.readyState === WebSocket.OPEN) return;
 
-    const host = location.hostname;
-    const ws = new WebSocket(`ws://${host}:8080/ws/${this.#roomId}`);
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}/ws/${this.#roomId}`);
 
     ws.onopen = () => {
       this.#retryDelay = 1000;

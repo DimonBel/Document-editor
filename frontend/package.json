@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.3.0",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/legacy-modes": "^6.5.2",
+    "@uiw/react-codemirror": "^4.25.9",
     "antd": "^5.12.0",
     "konva": "^9.3.6",
     "nanoid": "^5.0.4",

@@ -40,6 +40,11 @@ enum InboundMsg {
         position: serde_json::Value,
         name: Option<String>,
     },
+    LatexSource {
+        #[serde(rename = "senderId")]
+        sender_id: String,
+        source: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +174,15 @@ impl WsSession {
                     .lock()
                     .unwrap()
                     .broadcast_cursor(&room_id, &sender_id, cursor_msg);
+            }
+
+            InboundMsg::LatexSource { sender_id, source } => {
+                let room_id = self.room_id.clone();
+                let sender_id_clone = self.id.clone();
+                self.rooms
+                    .lock()
+                    .unwrap()
+                    .update_latex_source(&room_id, &sender_id_clone, source);
             }
         }
     }

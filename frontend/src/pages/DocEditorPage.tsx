@@ -52,8 +52,8 @@ export function DocEditorPage() {
 
     const connect = () => {
       try {
-        const host = window.location.hostname;
-        const wsUrl = `ws://${host}:8080/ws/doc/${docId}`;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/doc/${docId}`;
         ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
@@ -61,7 +61,7 @@ export function DocEditorPage() {
           if (!isMounted) return;
           useDocStore.getState().setConnected(true);
           ws.send(JSON.stringify({
-            type: 'JoinDoc',
+            type: 'joinDoc',
             docId,
             clientId,
             name: clientName,
@@ -76,7 +76,7 @@ export function DocEditorPage() {
             case 'doc_sync':
               isLocalChangeRef.current = true;
               if (editorRef.current) {
-                editorRef.current.innerText = data.content || '';
+                editorRef.current.innerHTML = data.content || '';
               }
               contentRef.current = data.content || '';
               setContent(data.content || '');
@@ -101,12 +101,11 @@ export function DocEditorPage() {
               if (data.senderId !== clientId && data.content !== undefined) {
                 isLocalChangeRef.current = true;
                 if (editorRef.current) {
-                  editorRef.current.innerText = data.content;
+                  editorRef.current.innerHTML = data.content;
                 }
                 contentRef.current = data.content;
                 setContent(data.content);
                 isLocalChangeRef.current = false;
-                message.info('Document updated by another user');
               }
               break;
 
@@ -174,9 +173,9 @@ export function DocEditorPage() {
 
   const saveContent = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const currentContent = editorRef.current?.innerText || '';
+      const currentContent = editorRef.current?.innerHTML || '';
       wsRef.current.send(JSON.stringify({
-        type: 'DocContentUpdate',
+        type: 'docContentUpdate',
         content: currentContent,
       }));
     }
@@ -188,19 +187,18 @@ export function DocEditorPage() {
     }
     saveTimeoutRef.current = setTimeout(() => {
       saveContent();
-    }, 500);
+    }, 1000);
   };
 
   const handleInput = () => {
     if (isLocalChangeRef.current) {
-      isLocalChangeRef.current = false;
       return;
     }
 
     const editor = editorRef.current;
     if (!editor) return;
 
-    const newContent = editor.innerText;
+    const newContent = editor.innerHTML;
     const oldContent = contentRef.current;
 
     if (newContent === oldContent) return;
@@ -269,11 +267,19 @@ export function DocEditorPage() {
         </div>
 
         <div className="doc-header__right">
-          <div className="doc-header__users">
+          <div className="doc-header__collaborators">
+            <Tooltip title={`${clientName} (you)`}>
+              <span
+                className="doc-header__avatar"
+                style={{ backgroundColor: getCursorColor(clientId), border: '2px solid #1a73e8' }}
+              >
+                {clientName.charAt(0).toUpperCase()}
+              </span>
+            </Tooltip>
             {Object.values(remoteUsers).map(user => (
               <Tooltip key={user.clientId} title={user.name}>
-                <span 
-                  className="doc-header__avatar" 
+                <span
+                  className="doc-header__avatar"
                   style={{ backgroundColor: user.color }}
                 >
                   {user.name.charAt(0).toUpperCase()}
@@ -281,8 +287,8 @@ export function DocEditorPage() {
               </Tooltip>
             ))}
             {userCount > 0 && (
-              <span className="doc-header__user-count">
-                {userCount} collaborator{userCount > 1 ? 's' : ''}
+              <span className="doc-header__collab-count">
+                +{userCount} online
               </span>
             )}
           </div>

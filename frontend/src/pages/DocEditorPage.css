@@ -118,6 +118,10 @@
   color: #1e8e3e;
 }
 
+.doc-header__status--disconnected {
+  color: #d93025;
+}
+
 .doc-editor-container {
   flex: 1;
   overflow: auto;

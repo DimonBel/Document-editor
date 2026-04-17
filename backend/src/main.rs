@@ -3,6 +3,7 @@ mod config;
 mod crdt;
 mod documents;
 mod handlers;
+mod latex;
 mod models;
 mod rooms;
 
@@ -42,6 +43,7 @@ async fn main() -> std::io::Result<()> {
             .service(documents::http::get_document)
             .service(documents::http::list_documents)
             .service(documents::ws::doc_ws_route)
+            .service(latex::http::compile_latex)
     })
     .bind(format!("{}:{}", cfg.host, cfg.port))?
     .run()

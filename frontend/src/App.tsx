@@ -3,18 +3,26 @@ import { Card, Typography, message } from 'antd';
 import { FormOutlined, FileTextOutlined } from '@ant-design/icons';
 import { WhiteboardPage } from './pages/WhiteboardPage';
 import { DocEditorPage } from './pages/DocEditorPage';
+import { LaTeXEditorPage } from './pages/LaTeXEditorPage';
 import { DocSelector } from './features/doc/DocSelector';
+import { RoomSelector } from './features/room/RoomSelector';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { useDocStore } from './store/docStore';
+import { useRoomStore } from './store/roomStore';
 import { docsApi } from './core/api/docsApi';
+import { roomsApi } from './core/api/roomsApi';
 
 const { Title, Text } = Typography;
 
-type AppMode = 'home' | 'room' | 'doc-cabinet' | 'doc';
+type AppMode = 'home' | 'room' | 'doc-cabinet' | 'doc' | 'latex';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('home');
   const [loadingDoc, setLoadingDoc] = useState(false);
+  const [loadingRoom, setLoadingRoom] = useState(false);
+
+  const roomId = useRoomStore((s) => s.roomId);
+  const docId = useDocStore((s) => s.docId);
 
   const goToCabinet = () => {
     useDocStore.getState().leaveDoc();
@@ -24,16 +32,24 @@ export default function App() {
 
   const goHome = () => {
     useDocStore.getState().leaveDoc();
+    useRoomStore.getState().leaveRoom();
     setMode('home');
+    window.history.pushState({}, '', '/');
   };
 
-  const goToDoc = async (docId: string) => {
+  const goToRoomLobby = () => {
+    useRoomStore.getState().leaveRoom();
+    setMode('room');
+    window.history.pushState({}, '', '/');
+  };
+
+  const goToDoc = async (dId: string) => {
     setLoadingDoc(true);
     try {
-      const doc = await docsApi.get(docId);
+      const doc = await docsApi.get(dId);
       useDocStore.getState().joinDoc(doc.id, doc.title);
       setMode('doc');
-      window.history.pushState({}, '', `/doc/${docId}`);
+      window.history.pushState({}, '', `/doc/${dId}`);
     } catch (e) {
       console.error('Failed to load document:', e);
       message.error('Document not found');
@@ -43,20 +59,44 @@ export default function App() {
     }
   };
 
+  const goToRoom = async (rId: string) => {
+    setLoadingRoom(true);
+    try {
+      const room = await roomsApi.get(rId);
+      useRoomStore.getState().joinRoom({ roomId: room.id, roomName: room.name });
+      setMode('room');
+      window.history.pushState({}, '', `/room/${rId}`);
+    } catch {
+      message.error('Room not found');
+      setMode('room');
+    } finally {
+      setLoadingRoom(false);
+    }
+  };
+
+  // On mount: handle deep links /doc/:id and /room/:id
   useEffect(() => {
     const path = window.location.pathname;
-    const match = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
-    if (match) {
-      goToDoc(match[1]);
+    const docMatch = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
+    const roomMatch = path.match(/^\/room\/([a-zA-Z0-9-]+)$/);
+    if (docMatch) {
+      goToDoc(docMatch[1]);
+    } else if (roomMatch) {
+      setMode('room');
+      goToRoom(roomMatch[1]);
     }
   }, []);
 
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname;
-      const match = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
-      if (match) {
-        goToDoc(match[1]);
+      const docMatch = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
+      const roomMatch = path.match(/^\/room\/([a-zA-Z0-9-]+)$/);
+      if (docMatch) {
+        goToDoc(docMatch[1]);
+      } else if (roomMatch) {
+        setMode('room');
+        goToRoom(roomMatch[1]);
       } else {
         goToCabinet();
       }
@@ -65,15 +105,21 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const docId = useDocStore((s) => s.docId);
+  // Sync URL when room is joined from RoomSelector
+  useEffect(() => {
+    if (mode === 'room' && roomId) {
+      window.history.replaceState({}, '', `/room/${roomId}`);
+    }
+  }, [roomId, mode]);
+
   useEffect(() => {
     if (docId && mode === 'doc-cabinet') setMode('doc');
   }, [docId, mode]);
 
-  if (loadingDoc) {
+  if (loadingDoc || loadingRoom) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-        <Typography.Text>Loading document...</Typography.Text>
+        <Typography.Text>Loading...</Typography.Text>
       </div>
     );
   }
@@ -84,11 +130,16 @@ export default function App() {
         <HomeScreen
           onWhiteboard={() => setMode('room')}
           onDocument={goToCabinet}
+          onLatex={() => setMode('latex')}
         />
       )}
-      {mode === 'room' && <WhiteboardPageWrapper onBack={goHome} />}
+      {mode === 'room' && !roomId && <RoomSelectorWrapper onBack={goHome} />}
+      {mode === 'room' && roomId && <WhiteboardPageWrapper onBack={goToRoomLobby} />}
       {mode === 'doc-cabinet' && <DocCabinetWrapper onBack={goHome} />}
       {mode === 'doc' && <DocEditorPageWrapper onBack={goToCabinet} />}
+      {mode === 'latex' && (
+        <LaTeXEditorPage onBack={() => { setMode('home'); window.history.pushState({}, '', '/'); }} />
+      )}
     </ErrorBoundary>
   );
 }
@@ -96,9 +147,10 @@ export default function App() {
 interface HomeScreenProps {
   onWhiteboard: () => void;
   onDocument: () => void;
+  onLatex: () => void;
 }
 
-function HomeScreen({ onWhiteboard, onDocument }: HomeScreenProps) {
+function HomeScreen({ onWhiteboard, onDocument, onLatex }: HomeScreenProps) {
   return (
     <div style={{
       display: 'flex',
@@ -231,6 +283,52 @@ function HomeScreen({ onWhiteboard, onDocument }: HomeScreenProps) {
               <div style={{ fontSize: '13px', color: '#666' }}>Edit text documents together like Google Docs</div>
             </div>
           </button>
+
+          <button
+            onClick={onLatex}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              width: '100%',
+              padding: '20px',
+              borderRadius: '12px',
+              border: '2px solid #e8e8e8',
+              marginTop: '12px',
+              background: 'white',
+              cursor: 'pointer',
+              transition: 'all 150ms ease',
+              textAlign: 'left',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.borderColor = '#0d9488';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(13, 148, 136, 0.2)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.borderColor = '#e8e8e8';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <div style={{
+              width: '48px',
+              height: '48px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#f0fdf9',
+              borderRadius: '12px',
+              color: '#0d9488',
+              fontSize: '22px',
+              fontWeight: 700,
+              fontFamily: 'serif',
+            }}>
+              Σ
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '16px', color: '#1a1a2e' }}>LaTeX Editor</div>
+              <div style={{ fontSize: '13px', color: '#666' }}>Write and compile LaTeX with live PDF preview</div>
+            </div>
+          </button>
         </div>
       </Card>
     </div>
@@ -241,7 +339,7 @@ interface WrapperProps {
   onBack: () => void;
 }
 
-function WhiteboardPageWrapper({ onBack }: WrapperProps) {
+function RoomSelectorWrapper({ onBack }: WrapperProps) {
   return (
     <div>
       <button
@@ -265,6 +363,67 @@ function WhiteboardPageWrapper({ onBack }: WrapperProps) {
         }}
       >
         ← Home
+      </button>
+      <RoomSelector />
+    </div>
+  );
+}
+
+function WhiteboardPageWrapper({ onBack }: WrapperProps) {
+  const roomId = useRoomStore((s) => s.roomId);
+
+  const shareRoom = () => {
+    const url = `${window.location.origin}/room/${roomId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      message.success('Room link copied! Share it so others can join.');
+    });
+  };
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          position: 'fixed',
+          top: '12px',
+          left: '12px',
+          zIndex: 500,
+          padding: '8px 16px',
+          borderRadius: '8px',
+          border: '1px solid #ddd',
+          background: 'rgba(255,255,255,0.95)',
+          backdropFilter: 'blur(8px)',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        ← Rooms
+      </button>
+      <button
+        onClick={shareRoom}
+        style={{
+          position: 'fixed',
+          top: '12px',
+          right: '12px',
+          zIndex: 500,
+          padding: '8px 16px',
+          borderRadius: '8px',
+          border: '1px solid #ddd',
+          background: 'rgba(255,255,255,0.95)',
+          backdropFilter: 'blur(8px)',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        🔗 Share room
       </button>
       <WhiteboardPage />
     </div>

@@ -123,7 +123,7 @@ export function useCollaboration() {
 
   const sendPreview = useCallback((draft: DraftResult | null) => {
     wsRef.current?.send({
-      type: draft ? 'preview' : 'preview_clear',
+      type: draft ? 'preview' : 'previewClear',
       senderId: clientId,
       element: draft ? { ...draft, id: '' } : null,
     });
