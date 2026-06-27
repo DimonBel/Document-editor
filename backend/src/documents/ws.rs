@@ -28,6 +28,10 @@ pub struct DocWsSession {
     pub id: String,
     pub doc_id: String,
     pub name: String,
+    /// Set to true only after a valid JoinDoc frame has been processed.
+    /// Until then any DocContentUpdate is rejected so it cannot be
+    /// attributed to the placeholder UUID assigned at session creation.
+    pub joined: bool,
     pub docs: web::Data<Arc<Mutex<DocumentManager>>>,
 }
 
@@ -35,8 +39,10 @@ impl Actor for DocWsSession {
     type Context = ws::WebsocketContext<Self>;
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        if let Ok(mut mgr) = self.docs.lock() {
-            mgr.leave_document(&self.doc_id, &self.id);
+        if self.joined {
+            if let Ok(mut mgr) = self.docs.lock() {
+                mgr.leave_document(&self.doc_id, &self.id);
+            }
         }
         Running::Stop
     }
@@ -65,6 +71,25 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for DocWsSession {
 }
 
 impl DocWsSession {
+    fn reject_if_not_joined(&self, ctx: &mut ws::WebsocketContext<Self>, frame: &str) -> bool {
+        if self.joined {
+            return false;
+        }
+        log::warn!(
+            "Doc WS: dropped pre-join frame {} (doc={})",
+            frame,
+            self.doc_id
+        );
+        ctx.text(
+            serde_json::json!({
+                "type": "error",
+                "message": "Must send 'joinDoc' before any other frame",
+            })
+            .to_string(),
+        );
+        true
+    }
+
     fn on_text(&mut self, text: String, ctx: &mut ws::WebsocketContext<Self>) {
         let msg: InboundDocMsg = match serde_json::from_str(&text) {
             Ok(m) => m,
@@ -87,6 +112,7 @@ impl DocWsSession {
                     .join_document(&doc_id, client_id.clone(), name.clone(), recipient);
 
                 if let Some(payload) = sync_payload {
+                    self.joined = true;
                     ctx.text(payload);
 
                     self.docs
@@ -94,15 +120,21 @@ impl DocWsSession {
                         .unwrap()
                         .announce_doc_join(&doc_id, &client_id, &name);
                 } else {
-                    ctx.text(serde_json::json!({
-                        "type": "error",
-                        "message": "Document not found"
-                    }).to_string());
+                    ctx.text(
+                        serde_json::json!({
+                            "type": "error",
+                            "message": "Document not found"
+                        })
+                        .to_string(),
+                    );
                     ctx.stop();
                 }
             }
 
             InboundDocMsg::DocContentUpdate { content } => {
+                if self.reject_if_not_joined(ctx, "docContentUpdate") {
+                    return;
+                }
                 self.docs
                     .lock()
                     .unwrap()
@@ -124,6 +156,7 @@ pub async fn doc_ws_route(
         id: Uuid::new_v4().to_string(),
         doc_id: String::new(),
         name: "Anonymous".to_string(),
+        joined: false,
         docs,
     };
     actix_web_actors::ws::start(session, &req, stream)

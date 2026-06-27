@@ -13,6 +13,11 @@ use crate::rooms::manager::RoomManager;
 // ---------------------------------------------------------------------------
 // Inbound message envelope
 // ---------------------------------------------------------------------------
+//
+// Sender identity (clientId / senderId) is captured at Join time and
+// stored in the session. Every other message is attributed to the
+// server-owned self.id, not to whatever the client put on the wire,
+// to prevent spoofing (L-23).
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -26,23 +31,25 @@ enum InboundMsg {
         operation: Operation,
     },
     Preview {
+        // Ignored by the server; session id is used instead.
         #[serde(rename = "senderId")]
-        sender_id: String,
+        _sender_id: String,
         element: serde_json::Value,
     },
     PreviewClear {
         #[serde(rename = "senderId")]
-        sender_id: String,
+        _sender_id: String,
     },
     Cursor {
+        // Ignored; session id is authoritative.
         #[serde(rename = "clientId")]
-        client_id: String,
+        _client_id: String,
         position: serde_json::Value,
         name: Option<String>,
     },
     LatexSource {
         #[serde(rename = "senderId")]
-        sender_id: String,
+        _sender_id: String,
         source: String,
     },
 }
@@ -55,6 +62,11 @@ pub struct WsSession {
     pub id: String,
     pub room_id: String,
     pub name: String,
+    /// Set to true only after the Join frame is processed. Until then
+    /// any non-Join inbound message is rejected so a misbehaving or
+    /// hostile client cannot attribute broadcasts to a placeholder
+    /// session id (L-24).
+    pub joined: bool,
     pub rooms: web::Data<Arc<Mutex<RoomManager>>>,
 }
 
@@ -62,8 +74,10 @@ impl Actor for WsSession {
     type Context = ws::WebsocketContext<Self>;
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        if let Ok(mut mgr) = self.rooms.lock() {
-            mgr.unregister_client(&self.room_id, &self.id);
+        if self.joined {
+            if let Ok(mut mgr) = self.rooms.lock() {
+                mgr.unregister_client(&self.room_id, &self.id);
+            }
         }
         Running::Stop
     }
@@ -94,6 +108,25 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
 }
 
 impl WsSession {
+    fn reject_if_not_joined(&self, ctx: &mut ws::WebsocketContext<Self>, frame: &str) -> bool {
+        if self.joined {
+            return false;
+        }
+        log::warn!(
+            "WS in room {}: dropped pre-join frame from un-joined session: {}",
+            self.room_id,
+            frame
+        );
+        ctx.text(
+            serde_json::json!({
+                "type": "error",
+                "message": "Must send 'join' before any other frame",
+            })
+            .to_string(),
+        );
+        true
+    }
+
     fn on_text(&mut self, text: String, ctx: &mut ws::WebsocketContext<Self>) {
         let msg: InboundMsg = match serde_json::from_str(&text) {
             Ok(m) => m,
@@ -107,6 +140,7 @@ impl WsSession {
             InboundMsg::Join { client_id, name } => {
                 self.id = client_id.clone();
                 self.name = name.clone();
+                self.joined = true;
 
                 let recipient = ctx.address().recipient::<OutboundMessage>();
                 let sync_payload = self
@@ -124,6 +158,9 @@ impl WsSession {
             }
 
             InboundMsg::Operation { operation } => {
+                if self.reject_if_not_joined(ctx, "operation") {
+                    return;
+                }
                 let room_id = self.room_id.clone();
                 let sender_id = self.id.clone();
                 self.rooms
@@ -132,8 +169,12 @@ impl WsSession {
                     .apply_operation(&room_id, &sender_id, operation);
             }
 
-            InboundMsg::Preview { sender_id, element } => {
+            InboundMsg::Preview { element, .. } => {
+                if self.reject_if_not_joined(ctx, "preview") {
+                    return;
+                }
                 let room_id = self.room_id.clone();
+                let sender_id = self.id.clone();
                 let preview_msg = serde_json::json!({
                     "type": "preview",
                     "senderId": sender_id,
@@ -145,8 +186,12 @@ impl WsSession {
                     .broadcast_to_room_except(&room_id, &sender_id, preview_msg);
             }
 
-            InboundMsg::PreviewClear { sender_id } => {
+            InboundMsg::PreviewClear { .. } => {
+                if self.reject_if_not_joined(ctx, "previewClear") {
+                    return;
+                }
                 let room_id = self.room_id.clone();
+                let sender_id = self.id.clone();
                 let preview_msg = serde_json::json!({
                     "type": "preview_clear",
                     "senderId": sender_id,
@@ -157,32 +202,35 @@ impl WsSession {
                     .broadcast_to_room_except(&room_id, &sender_id, preview_msg);
             }
 
-            InboundMsg::Cursor {
-                client_id,
-                position,
-                name,
-            } => {
+            InboundMsg::Cursor { position, name, .. } => {
+                if self.reject_if_not_joined(ctx, "cursor") {
+                    return;
+                }
+                let sender_id = self.id.clone();
+                let display_name = name.unwrap_or_else(|| self.name.clone());
                 let cursor_msg = serde_json::json!({
                     "type": "cursor",
-                    "clientId": client_id,
+                    "clientId": sender_id,
                     "position": position,
-                    "name": name,
+                    "name": display_name,
                 });
                 let room_id = self.room_id.clone();
-                let sender_id = self.id.clone();
                 self.rooms
                     .lock()
                     .unwrap()
                     .broadcast_cursor(&room_id, &sender_id, cursor_msg);
             }
 
-            InboundMsg::LatexSource { sender_id, source } => {
+            InboundMsg::LatexSource { source, .. } => {
+                if self.reject_if_not_joined(ctx, "latexSource") {
+                    return;
+                }
                 let room_id = self.room_id.clone();
-                let sender_id_clone = self.id.clone();
+                let sender_id = self.id.clone();
                 self.rooms
                     .lock()
                     .unwrap()
-                    .update_latex_source(&room_id, &sender_id_clone, source);
+                    .update_latex_source(&room_id, &sender_id, source);
             }
         }
     }
@@ -204,6 +252,7 @@ pub async fn ws_route(
         id: Uuid::new_v4().to_string(),
         room_id,
         name: "Anonymous".to_string(),
+        joined: false,
         rooms,
     };
     actix_web_actors::ws::start(session, &req, stream)
