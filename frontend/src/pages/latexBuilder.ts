@@ -173,17 +173,18 @@ export function buildInitPage(): string {
 '  body = body.replace(/\\\\texttt\\{([^}]*)}/g,\'<code>$1</code>\');\n' +
 '  body = body.replace(/\\\\textrm\\{([^}]*)}/g,\'$1\');\n' +
 '  body = body.replace(/\\\\text\\{([^}]*)}/g,\'$1\');\n' +
-'  body = body.replace(/\\{\\\\bf\\s([^}]*)}/g,\'<strong>$1</strong>\');\n' +
-'  body = body.replace(/\\{\\\\it\\s([^}]*)}/g,\'<em>$1</em>\');\n' +
-'  body = body.replace(/\\{\\\\tt\\s([^}]*)}/g,\'<code>$1</code>\');\n' +
+'  // LaTeX 2.09 style {\bf ...}, {\it ...}, {\tt ...}. Match the\n' +
+'  // outer pair only and let the inner text fall through unchanged so\n' +
+'  // nested braces survive (e.g. {\\bf {nested}}).\n' +
+'  body = body.replace(/\\{\\\\bf\\s+([\\s\\S]*?)\\}/g, \'<strong>$1</strong>\');\n' +
+'  body = body.replace(/\\{\\\\it\\s+([\\s\\S]*?)\\}/g, \'<em>$1</em>\');\n' +
+'  body = body.replace(/\\{\\\\tt\\s+([\\s\\S]*?)\\}/g, \'<code>$1</code>\');\n' +
 '  body = body.replace(/\\\\LaTeX\\b/g,\'L<sup style="font-size:.7em">A</sup>T<sub style="font-size:.7em">E</sub>X\');\n' +
 '  body = body.replace(/\\\\TeX\\b/g,\'T<sub style="font-size:.7em">E</sub>X\');\n' +
 '  body = body.replace(/\\\\today\\b/g, new Date().toLocaleDateString(\'en-US\',{year:\'numeric\',month:\'long\',day:\'numeric\'}));\n' +
 '  body = body.replace(/---/g,\'\\u2014\');\n' +
 '  body = body.replace(/--/g,\'\\u2013\');\n' +
 '  body = body.replace(/``/g,\'\\u201C\');\n' +
-'  body = body.replace(/<br>/g,\'<br>\');\n' +
-'  body = body.replace(/<br>/g,\'<br>\');\n' +
 '  body = body.replace(/\'\'/g,\'\\u201D\');\n' +
 '  body = body.replace(/\\\\qquad\\b/g,\'\\u2003\\u2003\');\n' +
 '  body = body.replace(/\\\\quad\\b/g,\'\\u2003\');\n' +
@@ -204,7 +205,7 @@ export function buildInitPage(): string {
 '  body = body.replace(/\\\\cite\\{([^}]*)}/g,\'[$1]\');\n' +
 '  body = body.replace(/\\\\url\\{([^}]*)}/g,\'<a href="$1">$1</a>\');\n' +
 '  body = body.replace(/\\\\href\\{([^}]*)\\}\\{([^}]*)}/g,\'<a href="$1">$2</a>\');\n' +
-'  body = body.replace(/\\\\\\\\(\\[.*?\\])?/g,\'<br>\');\n' +
+'  body = body.replace(/\\\\\\\\(\[[^\\]]*\])?/g,\'<br>\');\n' +
 '  body = body.replace(/\\\\newline\\b/g,\'<br>\');\n' +
 '  body = body.replace(/\\\\par\\b/g,\'\\n\\n\');\n' +
 '  body = body.replace(/\\\\noindent\\b/g,\'\');\n' +
@@ -213,6 +214,7 @@ export function buildInitPage(): string {
 '  body = body.replace(/\\\\vspace\\{[^}]*}/g,\'<div style="height:.8em"></div>\');\n' +
 '  body = body.replace(/\\\\hspace\\{[^}]*}/g,\' \');\n' +
 '  body = body.replace(/\\\\clearpage\\b|\\\\newpage\\b/g,\'<hr style="border:none;margin:2em 0">\');\n' +
+'  body = body.replace(/\\\\(tableofcontents|listoffigures|listoftables|bibliography|bibliographystyle|printbibliography|appendix|frontmatter|mainmatter|backmatter|centering|raggedright|raggedleft|normalsize|small|large|Large|LARGE|huge|Huge|tiny|footnotesize|normalfont|rmfamily|sffamily|ttfamily|bfseries|itshape|upshape|mdseries)\\b\\{[^}]*\\}/g,\'\');\n' +
 '  body = body.replace(/\\\\(tableofcontents|listoffigures|listoftables|bibliography|bibliographystyle|printbibliography|appendix|frontmatter|mainmatter|backmatter|centering|raggedright|raggedleft|normalsize|small|large|Large|LARGE|huge|Huge|tiny|footnotesize|normalfont|rmfamily|sffamily|ttfamily|bfseries|itshape|upshape|mdseries)\\b/g,\'\');\n' +
 '  body = body.replace(/\\n\\s*\\n/g,\'</p><p>\');\n' +
 '  var html = \'<p>\'+body.trim()+\'</p>\';\n' +
