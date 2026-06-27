@@ -143,13 +143,33 @@ pub fn parse_inline(src: &str) -> Vec<Inline> {
                 }
                 continue;
             }
+            // Honour a backslash-escaped \$ so a literal $ in prose
+            // (e.g. "price \$5") does not get swallowed by the
+            // math delimiter.
+            if i > 0 && ch[i - 1] == '\\' {
+                // The escape itself was consumed by the general
+                // command handler below; treat this $ as a literal.
+                buf.push('$');
+                i += 1;
+                continue;
+            }
             flush!();
             i += 1;
             let start = i;
-            while i < ch.len() && ch[i] != '$' { i += 1; }
+            // Greedy scan: an inline $ ends at the next un-escaped $.
+            // Previously this was limited to ~300 chars which silently
+            // broke long equations; there is no LaTeX-level limit.
+            while i < ch.len() {
+                if ch[i] == '\\' && i + 1 < ch.len() && (ch[i + 1] == '$' || ch[i + 1] == '\\') {
+                    i += 2;
+                    continue;
+                }
+                if ch[i] == '$' { break; }
+                i += 1;
+            }
             let math: String = ch[start..i].iter().collect();
             result.push(Inline::InlineMath(math));
-            i += 1; // skip closing $
+            if i < ch.len() { i += 1; } // skip closing $
             continue;
         }
 

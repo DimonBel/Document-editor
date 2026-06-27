@@ -31,6 +31,10 @@ export function buildInitPage(): string {
 '  .katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}\n' +
 '  .error{color:#c0392b;background:#fee;padding:14px;border-radius:5px;font-family:monospace;\n' +
 '         white-space:pre-wrap;font-size:13px;border-left:4px solid #c0392b}\n' +
+'  @media print{\n' +
+'    body{margin:0;padding:24px 48px;max-width:100%}\n' +
+'    .error{display:none}\n' +
+'  }\n' +
 '</style>\n' +
 '</head>\n' +
 '<body>\n' +
@@ -46,9 +50,12 @@ export function buildInitPage(): string {
 '}\n' +
 '\n' +
 'window.addEventListener(\'message\', function(e) {\n' +
-'  if (e.data && e.data.type === \'ltx-compile\') {\n' +
+'  if (!e.data) return;\n' +
+'  if (e.data.type === \'ltx-compile\') {\n' +
 '    if (katexReady) render(e.data.src);\n' +
 '    else pendingSrc = e.data.src;\n' +
+'  } else if (e.data.type === \'ltx-get-html\') {\n' +
+'    parent.postMessage({type:\'ltx-html\', html: document.documentElement.outerHTML}, \'*\');\n' +
 '  }\n' +
 '});\n' +
 '\n' +
@@ -107,8 +114,11 @@ export function buildInitPage(): string {
 '    function(_,c){return saveMath(c,true);});\n' +
 '  body = body.replace(/\\\\\\(([\\s\\S]*?)\\\\\\)/g,\n' +
 '    function(_,c){return saveMath(c,false);});\n' +
-'  body = body.replace(/\\$([^\\$\\n]{1,300}?)\\$/g,\n' +
-'    function(_,c){return saveMath(c,false);});\n' +
+'  // Inline $...$ math. No length cap (long equations were silently\n' +
+'  // truncated before) and $ preceded by an odd number of backslashes\n' +
+'  // is treated as a literal \\$ escape, not as a math delimiter.\n' +
+'  body = body.replace(/((?:^|[^\\\\])(?:\\\\\\\\)*)\\$([^\\$\\n]+?)\\$/g,\n' +
+'    function(_, prefix, c){ return prefix + saveMath(c, false); });\n' +
 '  var verb = [];\n' +
 '  body = body.replace(/\\\\begin\\{verbatim}([\\s\\S]*?)\\\\end\\{verbatim}/g, function(_,c){\n' +
 '    var id=\'__V\'+verb.length+\'__\';\n' +
