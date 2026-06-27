@@ -162,8 +162,17 @@ export function DocEditorPage() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      // Flush any pending debounced save so the last second of typing
+      // isn't lost when the user navigates away.
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const finalContent = editorRef.current?.innerHTML ?? '';
+          wsRef.current.send(JSON.stringify({
+            type: 'docContentUpdate',
+            content: finalContent,
+          }));
+        }
       }
       if (ws) {
         ws.close();
