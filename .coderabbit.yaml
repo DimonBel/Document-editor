@@ -1,0 +1,36 @@
+language: en-US
+reviews:
+  profile: concise
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    ignore_title_keywords: []
+    labels: []
+    drafts: false
+    base_branches: ["master", "main"]
+  path_filters:
+    - "backend/**"
+    - "frontend/src/**"
+  path_instructions:
+    - path: "backend/**/*.rs"
+      instructions: "Review Rust/actix-web code: async safety, error handling, Actix actor patterns."
+    - path: "frontend/**/*.tsx"
+      instructions: "Review React/TS: hooks usage, Ant Design patterns, accessibility."
+    - path: "frontend/**/*.ts"
+      instructions: "Review TypeScript: types strictness, no `any`, idiomatic patterns."
+chat:
+  auto_reply: true
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: global
+code_generation:
+  docstrings:
+    language: en-US
+issue_resolver:
+  enabled: true

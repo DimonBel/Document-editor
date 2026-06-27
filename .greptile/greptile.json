@@ -1,0 +1,31 @@
+{
+  "comment": "Greptile configuration — activates once the Greptile GitHub App is installed.",
+  "scope": "repository",
+  "branches": ["master", "main"],
+  "reviewOnPR": true,
+  "commentOnPR": true,
+  "ignorePaths": [
+    "frontend/dist/**",
+    "frontend/node_modules/**",
+    "backend/target/**",
+    "**/*.lock",
+    "**/*.min.js"
+  ],
+  "rules": [
+    {
+      "id": "no-unwrap-in-prod",
+      "description": "Discourage .unwrap() in Rust production code paths",
+      "pattern": "\\.unwrap\\(",
+      "severity": "warning",
+      "languages": ["rust"],
+      "exclude": ["**/tests/**", "**/*_test.rs"]
+    },
+    {
+      "id": "no-eval",
+      "description": "No eval() in JS/TS",
+      "pattern": "\\beval\\s*\\(",
+      "severity": "error",
+      "languages": ["typescript", "javascript"]
+    }
+  ]
+}
