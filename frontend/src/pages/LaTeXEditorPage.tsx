@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button, Tooltip, message, Input, Modal, List, Avatar, Tag } from 'antd';
-import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { StreamLanguage } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
@@ -9,6 +9,7 @@ import { useLatexStore } from '../store/latexStore';
 import { useLatexCollab } from '../features/collaboration/useLatexCollab';
 import { roomsApi } from '../core/api/roomsApi';
 import { buildInitPage } from './latexBuilder';
+import { latexToDocxBlob } from './latexToDocx';
 import { RoomInfo } from '../types';
 import './LaTeXEditorPage.css';
 
@@ -107,7 +108,7 @@ Consider the square with side $(a+b)$. \\qquad $\\square$
   },
 ];
 
-type Status = 'idle' | 'compiling' | 'success' | 'error';
+type Status = 'idle' | 'compiling' | 'success' | 'error' | 'saving' | 'saving-docx';
 
 const cmExtensions = [
   StreamLanguage.define(stex),
@@ -138,6 +139,10 @@ export function LaTeXEditorPage({ onBack }: Props) {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
 
+  // Tracks the source we last loaded from outside (sync / template / room
+  // join). Avoids fighting the user when they are actively typing.
+  const hydratedRef = useRef(false);
+
   const handleSourceChange = useCallback((newSource: string) => {
     setSource(newSource);
     setStatus('idle');
@@ -157,7 +162,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
   const remoteUsersList = Object.values(remoteUsers);
 
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
+    const handler = async (e: MessageEvent) => {
       if (e.data?.type === 'ltx-ready') {
         iframeReady.current = true;
       } else if (e.data?.type === 'ltx-ok') {
@@ -166,11 +171,88 @@ export function LaTeXEditorPage({ onBack }: Props) {
       } else if (e.data?.type === 'ltx-err') {
         setStatus('error');
         setErrorMsg(e.data.msg as string);
+      } else if (e.data?.type === 'ltx-html') {
+        try {
+          const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+            import('html2canvas'),
+            import('jspdf'),
+          ]);
+          const hidden = document.createElement('iframe');
+          hidden.style.cssText = 'position:fixed;left:-9999px;top:0;width:820px;height:1px;border:none;visibility:hidden';
+          hidden.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+          document.body.appendChild(hidden);
+          await new Promise<void>((resolve) => { hidden.onload = () => resolve(); hidden.srcdoc = e.data.html as string; });
+          await new Promise((r) => setTimeout(r, 800));
+          const body = hidden.contentDocument!.body;
+          body.style.margin = '0';
+          const fullHeight = body.scrollHeight;
+          hidden.style.height = fullHeight + 'px';
+          const canvas = await html2canvas(body, { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 820, width: 820, height: fullHeight });
+          document.body.removeChild(hidden);
+          const A4_W = 595, A4_H = 842;
+          const imgH = Math.round((canvas.height / canvas.width) * A4_W);
+          const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+          let y = 0;
+          while (y < imgH) { if (y > 0) pdf.addPage(); pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -y, A4_W, imgH); y += A4_H; }
+          pdf.save('document.pdf');
+        } catch {
+          message.error('Failed to generate PDF');
+        }
+        setStatus('success');
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, []);
+
+  const savePdf = useCallback(() => {
+    setStatus('saving');
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, '*');
+  }, []);
+
+  const saveDocx = useCallback(async () => {
+    setStatus('saving-docx');
+    try {
+      // Try Rust backend first (high-quality, proper OMML math)
+      const res = await fetch('/api/latex/to-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.docx';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // Fallback to TS converter
+        const blob = await latexToDocxBlob(source);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.docx';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      // Backend unreachable — use TS converter
+      try {
+        const blob = await latexToDocxBlob(source);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.docx';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        message.error('Failed to generate DOCX');
+      }
+    }
+    setStatus('success');
+  }, [source]);
 
   const compile = useCallback(() => {
     if (status === 'compiling') return;
@@ -213,6 +295,12 @@ export function LaTeXEditorPage({ onBack }: Props) {
 
   const handleJoinRoom = async (room: RoomInfo) => {
     joinLatexRoom(room.id, room.name);
+    if (room.latex_source) {
+      hydratedRef.current = true;
+      setSource(room.latex_source);
+      setStatus('idle');
+      setHasCompiled(false);
+    }
     setShowRoomModal(false);
     message.success(`Joined room: ${room.name}`);
   };
@@ -303,6 +391,28 @@ export function LaTeXEditorPage({ onBack }: Props) {
           {status === 'success'   && <span className="ltx-badge ltx-badge--success">✓ OK</span>}
           {status === 'error'     && <span className="ltx-badge ltx-badge--error">✗ Error</span>}
           {status === 'compiling' && <span className="ltx-badge ltx-badge--loading"><LoadingOutlined spin /> Compiling…</span>}
+          {(status === 'success' || status === 'saving' || status === 'saving-docx') && (<>
+            <Tooltip title="Download as PDF">
+              <Button
+                icon={status === 'saving' ? <LoadingOutlined /> : <FilePdfOutlined />}
+                loading={status === 'saving'}
+                onClick={savePdf}
+                disabled={status === 'saving' || status === 'saving-docx'}
+              >
+                Save as PDF
+              </Button>
+            </Tooltip>
+            <Tooltip title="Download as Word document (.docx)">
+              <Button
+                icon={status === 'saving-docx' ? <LoadingOutlined /> : <FileWordOutlined />}
+                loading={status === 'saving-docx'}
+                onClick={saveDocx}
+                disabled={status === 'saving' || status === 'saving-docx'}
+              >
+                Save as DOCX
+              </Button>
+            </Tooltip>
+          </>)}
           <Button type="primary"
             icon={status === 'compiling' ? <LoadingOutlined /> : <PlayCircleOutlined />}
             disabled={status === 'compiling'} onClick={compile}>
@@ -373,7 +483,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
             ref={iframeRef}
             className="ltx-iframe"
             srcDoc={INIT_PAGE}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-modals"
             title="LaTeX Preview"
             style={{ display: hasCompiled && !(status === 'error' && errorMsg) ? 'block' : 'none' }}
           />

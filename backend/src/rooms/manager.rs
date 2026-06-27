@@ -26,6 +26,7 @@ struct RoomClient {
 struct RoomData {
     id: String,
     name: String,
+    #[serde(default)]
     latex_source: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -46,6 +47,7 @@ impl Room {
             name: self.name.clone(),
             created_at: self.created_at,
             client_count: self.clients.len(),
+            latex_source: self.latex_source.clone(),
         }
     }
 
@@ -172,6 +174,7 @@ impl RoomManager {
             name,
             created_at: now,
             client_count: 0,
+            latex_source: None,
         }
     }
 
@@ -188,7 +191,9 @@ impl RoomManager {
     // -----------------------------------------------------------------------
 
     /// Register a new client and return the JSON sync payload they should receive.
-    /// If the room does not exist, it is created automatically.
+    /// If the room does not exist (e.g. a fresh server with no rooms.json
+    /// yet), it is created lazily with a synthesised name. Existing rooms
+    /// — including their persisted LaTeX source — are preserved.
     pub fn register_client(
         &mut self,
         room_id: &str,
@@ -197,10 +202,14 @@ impl RoomManager {
         addr: Recipient<OutboundMessage>,
     ) -> String {
         if !self.rooms.contains_key(room_id) {
+            log::info!("Auto-creating room {room_id} on first join");
             self.create_room(format!("Room {room_id}"));
         }
 
-        let room = self.rooms.get_mut(room_id).expect("just created");
+        let room = self
+            .rooms
+            .get_mut(room_id)
+            .expect("room created above or loaded from disk");
 
         room.clients.insert(
             client_id.clone(),

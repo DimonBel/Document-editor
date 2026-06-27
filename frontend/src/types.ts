@@ -33,6 +33,7 @@ export interface RoomInfo {
   name: string;
   created_at: string;
   client_count: number;
+  latex_source?: string | null;
 }
 
 export interface DrawElement {

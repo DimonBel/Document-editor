@@ -55,7 +55,10 @@ export function useLatexCollab(onSourceChange?: (source: string) => void) {
           switch (data.type) {
             case 'sync': {
               isLocalChangeRef.current = true;
-              if (data.latexSource && onSourceChange) {
+              // Only adopt the server source on first connect, before the
+              // user has typed anything locally. Otherwise we'd race the
+              // user and silently overwrite their edits.
+              if (data.latexSource && !sourceRef.current && onSourceChange) {
                 sourceRef.current = data.latexSource;
                 onSourceChange(data.latexSource);
               }
