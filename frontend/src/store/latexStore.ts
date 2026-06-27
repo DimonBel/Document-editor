@@ -77,15 +77,31 @@ export const useLatexStore = create<LatexState>((set) => ({
     delete next[id];
     return { remoteUsers: next };
   }),
-  addCommit: (author, latexContent, annotationCount) => set((state) => ({
-    commits: [...state.commits, {
-      id: nanoid(8),
-      author,
-      timestamp: Date.now(),
-      latexContent,
-      annotationCount,
-    }]
-  })),
+  addCommit: (author, latexContent, annotationCount) => set((state) => {
+    // Drop a commit whose source+author matches the most recent one
+    // so that a double-click on "Commit" doesn't record duplicates.
+    const last = state.commits[state.commits.length - 1];
+    if (
+      last &&
+      last.author === author &&
+      last.latexContent === latexContent &&
+      last.annotationCount === annotationCount
+    ) {
+      return state;
+    }
+    return {
+      commits: [
+        ...state.commits,
+        {
+          id: nanoid(8),
+          author,
+          timestamp: Date.now(),
+          latexContent,
+          annotationCount,
+        },
+      ],
+    };
+  }),
   setActiveTool: (activeTool) => set({ activeTool }),
   setStrokeColor: (strokeColor) => set({ strokeColor }),
   setFillColor: (fillColor) => set({ fillColor }),

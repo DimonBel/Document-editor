@@ -149,7 +149,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
     setHasCompiled(false);
   }, []);
 
-  const { roomId, roomName: currentRoomName, clientName, elements, connected, joinLatexRoom, leaveLatexRoom, addCommit } = useLatexStore();
+  const { roomId, roomName: currentRoomName, clientName, elements, connected, joinLatexRoom, leaveLatexRoom, addCommit, clearAnnotations } = useLatexStore();
   const { sendSourceUpdate, remoteUsers } = useLatexCollab(handleSourceChange);
 
   const handleSourceUpdate = useCallback((newSource: string) => {
@@ -356,6 +356,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
   const handleCommit = () => {
     const annotationCount = elements.length;
     addCommit(clientName, source, annotationCount);
+    clearAnnotations();
     message.success(`[${clientName}] committed ${annotationCount} annotation${annotationCount !== 1 ? 's' : ''}`);
     setShowCommitModal(false);
   };
