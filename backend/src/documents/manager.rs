@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::broadcast::dispatcher::OutboundMessage;
 use crate::models::client::ClientInfo;
+use crate::util::write_atomic;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -145,7 +146,7 @@ impl DocumentManager {
 
         match serde_json::to_string_pretty(&docs) {
             Ok(json) => {
-                if let Err(e) = fs::write(&self.data_path, json) {
+                if let Err(e) = write_atomic(&self.data_path, json.as_bytes()) {
                     log::error!("Failed to save documents: {}", e);
                 }
             }

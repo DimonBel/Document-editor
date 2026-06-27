@@ -11,6 +11,7 @@ use crate::crdt::state::DocumentState;
 use crate::models::client::ClientInfo;
 use crate::models::operation::Operation;
 use crate::models::room::RoomInfo;
+use crate::util::write_atomic;
 
 // ---------------------------------------------------------------------------
 // Internal room representation
@@ -139,7 +140,7 @@ impl RoomManager {
 
         match serde_json::to_string_pretty(&rooms_data) {
             Ok(json) => {
-                if let Err(e) = fs::write(&self.data_path, json) {
+                if let Err(e) = write_atomic(&self.data_path, json.as_bytes()) {
                     log::error!("Failed to save rooms: {}", e);
                 }
             }

@@ -6,6 +6,7 @@ mod handlers;
 mod latex;
 mod models;
 mod rooms;
+mod util;
 
 use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
@@ -44,6 +45,7 @@ async fn main() -> std::io::Result<()> {
             .service(documents::http::list_documents)
             .service(documents::ws::doc_ws_route)
             .service(latex::http::compile_latex)
+            .service(latex::http::latex_to_docx)
     })
     .bind(format!("{}:{}", cfg.host, cfg.port))?
     .run()
