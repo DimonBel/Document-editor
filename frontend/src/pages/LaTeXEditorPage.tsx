@@ -183,7 +183,9 @@ export function LaTeXEditorPage({ onBack }: Props) {
           document.body.appendChild(hidden);
           await new Promise<void>((resolve) => { hidden.onload = () => resolve(); hidden.srcdoc = e.data.html as string; });
           await new Promise((r) => setTimeout(r, 800));
-          const body = hidden.contentDocument!.body;
+          const doc = hidden.contentDocument;
+          if (!doc) throw new Error('Sandbox iframe produced no document');
+          const body = doc.body;
           body.style.margin = '0';
           const fullHeight = body.scrollHeight;
           hidden.style.height = fullHeight + 'px';
@@ -195,63 +197,88 @@ export function LaTeXEditorPage({ onBack }: Props) {
           let y = 0;
           while (y < imgH) { if (y > 0) pdf.addPage(); pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -y, A4_W, imgH); y += A4_H; }
           pdf.save('document.pdf');
-        } catch {
-          message.error('Failed to generate PDF');
+          setStatus('success');
+        } catch (err) {
+          console.error('PDF generation failed:', err);
+          message.error(`Failed to generate PDF: ${err instanceof Error ? err.message : 'unknown error'}`);
+          setStatus('error');
         }
-        setStatus('success');
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, []);
 
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    // Defer revocation so the click has a chance to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const savePdf = useCallback(() => {
     setStatus('saving');
+    // Snapshot the source we want reflected in the PDF so that the
+    // preview iframe (which may be stale) is forced to re-render
+    // before we ask for its HTML.
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, '*');
     iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, '*');
-  }, []);
+  }, [source]);
 
   const saveDocx = useCallback(async () => {
+    // Snapshot the source up-front so a compile that finishes mid-export
+    // can't mutate the buffer we send to the backend.
+    const snapshot = source;
     setStatus('saving-docx');
+    setErrorMsg(null);
+
+    let blob: Blob | null = null;
+    let usedFallback = false;
+
     try {
-      // Try Rust backend first (high-quality, proper OMML math)
+      // Try the Rust backend first — it produces proper OMML math.
       const res = await fetch('/api/latex/to-docx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source }),
+        body: JSON.stringify({ source: snapshot }),
       });
       if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'document.docx';
-        a.click();
-        URL.revokeObjectURL(url);
+        blob = await res.blob();
       } else {
-        // Fallback to TS converter
-        const blob = await latexToDocxBlob(source);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'document.docx';
-        a.click();
-        URL.revokeObjectURL(url);
+        usedFallback = true;
+        blob = await latexToDocxBlob(snapshot);
       }
     } catch {
-      // Backend unreachable — use TS converter
+      // Backend unreachable — try the TS fallback before giving up.
       try {
-        const blob = await latexToDocxBlob(source);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'document.docx';
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch {
-        message.error('Failed to generate DOCX');
+        usedFallback = true;
+        blob = await latexToDocxBlob(snapshot);
+      } catch (innerErr) {
+        console.error('DOCX export failed:', innerErr);
+        message.error(`Failed to generate DOCX: ${innerErr instanceof Error ? innerErr.message : 'unknown error'}`);
+        setStatus('error');
+        return;
       }
     }
-    setStatus('success');
+
+    if (blob) {
+      try {
+        triggerDownload(blob, 'document.docx');
+        if (usedFallback) {
+          message.warning('Backend DOCX converter unavailable; used local fallback');
+        }
+        setStatus('success');
+      } catch (e) {
+        console.error('DOCX download failed:', e);
+        message.error('Browser blocked the DOCX download');
+        setStatus('error');
+      }
+    } else {
+      setStatus('error');
+    }
   }, [source]);
 
   const compile = useCallback(() => {
