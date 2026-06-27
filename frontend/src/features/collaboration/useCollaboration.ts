@@ -8,6 +8,14 @@ import { DrawElement, Point, Operation, DraftResult } from '../../types';
 
 const DEBOUNCE_MS = 50;
 
+// High-frequency streams (cursors, ghost previews) are throttled so a
+// 5-client room at 60 fps doesn't blast 300 frames/sec at the server.
+// Both are leading-edge: we send the first sample immediately so the
+// remote peer sees the pointer move right away, then suppress samples
+// until the throttle window expires.
+const CURSOR_THROTTLE_MS = 40;
+const PREVIEW_THROTTLE_MS = 40;
+
 export function useCollaboration() {
   const { roomId, clientId, clientName, setConnected } = useRoomStore();
   const { setElements } = useCanvasStore();
@@ -17,6 +25,14 @@ export function useCollaboration() {
   const crdtRef = useRef<CRDTDocument | null>(null);
   const pendingOpsRef = useRef<Operation[]>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lastCursorSentRef = useRef<number>(0);
+  const pendingCursorRef = useRef<Point | null>(null);
+  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lastPreviewSentRef = useRef<number>(0);
+  const pendingPreviewRef = useRef<DraftResult | null | undefined>(undefined);
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushPending = useCallback(() => {
     const ws = wsRef.current;
@@ -106,7 +122,11 @@ export function useCollaboration() {
       reset();
       setConnected(false);
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       pendingOpsRef.current = [];
+      pendingCursorRef.current = null;
+      pendingPreviewRef.current = undefined;
     };
   }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setRemotePreview]);
 
@@ -121,22 +141,76 @@ export function useCollaboration() {
     scheduleFlush();
   }, [setElements, scheduleFlush]);
 
-  const sendPreview = useCallback((draft: DraftResult | null) => {
-    wsRef.current?.send({
-      type: draft ? 'preview' : 'previewClear',
-      senderId: clientId,
-      element: draft ? { ...draft, id: '' } : null,
-    });
-  }, [clientId]);
-
   const sendCursor = useCallback((position: Point) => {
-    wsRef.current?.send({
-      type: 'cursor',
-      clientId,
-      position,
-      name: clientName,
-    });
+    const ws = wsRef.current;
+    if (!ws) return;
+    const now = performance.now();
+    const elapsed = now - lastCursorSentRef.current;
+    if (elapsed >= CURSOR_THROTTLE_MS) {
+      ws.send({ type: 'cursor', clientId, position, name: clientName });
+      lastCursorSentRef.current = now;
+      pendingCursorRef.current = null;
+      if (cursorTimerRef.current) {
+        clearTimeout(cursorTimerRef.current);
+        cursorTimerRef.current = null;
+      }
+    } else {
+      pendingCursorRef.current = position;
+      if (!cursorTimerRef.current) {
+        const delay = CURSOR_THROTTLE_MS - elapsed;
+        cursorTimerRef.current = setTimeout(() => {
+          cursorTimerRef.current = null;
+          if (pendingCursorRef.current) {
+            const pos = pendingCursorRef.current;
+            pendingCursorRef.current = null;
+            ws.send({ type: 'cursor', clientId, position: pos, name: clientName });
+            lastCursorSentRef.current = performance.now();
+          }
+        }, delay);
+      }
+    }
   }, [clientId, clientName]);
+
+  const sendPreview = useCallback((draft: DraftResult | null) => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    // null means "clear"; always send immediately so peers stop showing
+    // a stale ghost as soon as the local user releases the pointer.
+    if (draft === null) {
+      pendingPreviewRef.current = null;
+      if (previewTimerRef.current) {
+        clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      ws.send({ type: 'previewClear', senderId: clientId });
+      return;
+    }
+    const now = performance.now();
+    const elapsed = now - lastPreviewSentRef.current;
+    if (elapsed >= PREVIEW_THROTTLE_MS) {
+      ws.send({ type: 'preview', senderId: clientId, element: { ...draft, id: '' } });
+      lastPreviewSentRef.current = now;
+      pendingPreviewRef.current = undefined;
+      if (previewTimerRef.current) {
+        clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+    } else {
+      pendingPreviewRef.current = draft;
+      if (!previewTimerRef.current) {
+        const delay = PREVIEW_THROTTLE_MS - elapsed;
+        previewTimerRef.current = setTimeout(() => {
+          previewTimerRef.current = null;
+          const d = pendingPreviewRef.current;
+          pendingPreviewRef.current = undefined;
+          if (d) {
+            ws.send({ type: 'preview', senderId: clientId, element: { ...d, id: '' } });
+            lastPreviewSentRef.current = performance.now();
+          }
+        }, delay);
+      }
+    }
+  }, [clientId]);
 
   return { addElement, sendCursor, sendPreview };
 }
