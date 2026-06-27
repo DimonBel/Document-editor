@@ -7,6 +7,12 @@ edition = "2021"
 name = "whiteboard-server"
 path = "src/main.rs"
 
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = false
+
 [dependencies]
 actix-web = "4"
 actix = "0.13"
@@ -19,3 +25,4 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 env_logger = "0.10"
+zip = { version = "8.5.1", features = ["deflate"] }
