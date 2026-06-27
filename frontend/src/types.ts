@@ -71,6 +71,10 @@ export interface CursorPosition {
   x: number;
   y: number;
   name?: string;
+  /** Wall-clock timestamp of the last received sample, used to evict
+   *  cursors that have stopped moving (no `user_left` will fire if
+   *  the peer crashed without a Close frame). */
+  ts?: number;
 }
 
 export type ToolType = 'freehand' | 'rectangle' | 'ellipse' | 'text' | 'eraser';

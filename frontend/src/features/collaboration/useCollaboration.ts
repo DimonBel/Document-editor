@@ -19,7 +19,7 @@ const PREVIEW_THROTTLE_MS = 40;
 export function useCollaboration() {
   const { roomId, clientId, clientName, setConnected } = useRoomStore();
   const { setElements } = useCanvasStore();
-  const { setUsers, addUser, removeUser, updateCursor, reset, setRemotePreview } = useCollabStore();
+  const { setUsers, addUser, removeUser, updateCursor, reset, setRemotePreview, pruneStaleCursors } = useCollabStore();
 
   const wsRef = useRef<WSClient | null>(null);
   const crdtRef = useRef<CRDTDocument | null>(null);
@@ -98,7 +98,11 @@ export function useCollaboration() {
           }
           case 'cursor': {
             if (data.clientId !== clientId) {
-              updateCursor(data.clientId as string, { ...(data.position as Point), name: data.name as string | undefined });
+              updateCursor(data.clientId as string, {
+                ...(data.position as Point),
+                name: data.name as string | undefined,
+                ts: Date.now(),
+              });
             }
             break;
           }
@@ -117,7 +121,12 @@ export function useCollaboration() {
     ws.connect();
     wsRef.current = ws;
 
+    // Drop cursors that haven't moved for 10 s — usually a peer that
+    // crashed without sending Close.
+    const pruneTimer = window.setInterval(() => pruneStaleCursors(10_000), 2_000);
+
     return () => {
+      window.clearInterval(pruneTimer);
       ws.disconnect();
       reset();
       setConnected(false);
@@ -128,7 +137,7 @@ export function useCollaboration() {
       pendingCursorRef.current = null;
       pendingPreviewRef.current = undefined;
     };
-  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setRemotePreview]);
+  }, [roomId, clientId, clientName, setConnected, setElements, setUsers, addUser, removeUser, updateCursor, reset, flushPending, setRemotePreview, pruneStaleCursors]);
 
   const addElement = useCallback((type: string, data: Record<string, unknown>) => {
     const crdt = crdtRef.current;

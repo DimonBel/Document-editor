@@ -9,6 +9,9 @@ interface CollabState {
   addUser: (user: ClientInfo) => void;
   removeUser: (clientId: string) => void;
   updateCursor: (clientId: string, cursor: CursorPosition) => void;
+  /** Drop cursors older than `olderThanMs` so a peer that crashed
+   *  without a Close frame eventually disappears from the canvas. */
+  pruneStaleCursors: (olderThanMs: number) => void;
   setRemotePreview: (clientId: string, element: DrawElement | null) => void;
   reset: () => void;
 }
@@ -32,6 +35,15 @@ export const useCollabStore = create<CollabState>((set) => ({
     }),
   updateCursor: (clientId, cursor) =>
     set((s) => ({ cursors: { ...s.cursors, [clientId]: cursor } })),
+  pruneStaleCursors: (olderThanMs) =>
+    set((s) => {
+      const cutoff = Date.now() - olderThanMs;
+      const next: Record<string, CursorPosition> = {};
+      for (const [id, cur] of Object.entries(s.cursors)) {
+        if ((cur.ts ?? 0) >= cutoff) next[id] = cur;
+      }
+      return { cursors: next };
+    }),
   setRemotePreview: (clientId, element) =>
     set((s) => {
       if (element === null) {
