@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Tooltip, message } from 'antd';
+import DOMPurify from 'dompurify';
 import { 
   LeftOutlined, 
   BoldOutlined,
@@ -27,6 +28,27 @@ function getCursorColor(clientId: string): string {
     hash = clientId.charCodeAt(i) + ((hash << 5) - hash);
   }
   return COLORS[Math.abs(hash) % COLORS.length];
+}
+
+/**
+ * Sanitize incoming HTML before injecting it into a contentEditable
+ * surface. The WebSocket peer is untrusted — anything reachable on
+ * the network can join a document room, so the peer-supplied content
+ * is the canonical XSS vector here.
+ *
+ * DOMPurify strips `<script>`, `<style>`, inline event handlers,
+ * `javascript:` URLs, and other dangerous attributes while preserving
+ * the inline formatting tags we actually need (`<b>`, `<i>`, `<u>`,
+ * `<div>`, `<p>`, `<br>`).
+ */
+function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'b', 'strong', 'i', 'em', 'u', 'p', 'br', 'div', 'span',
+      'h1', 'h2', 'h3', 'h4',
+    ],
+    ALLOWED_ATTR: [],
+  });
 }
 
 export function DocEditorPage() {
@@ -76,7 +98,7 @@ export function DocEditorPage() {
             case 'doc_sync':
               isLocalChangeRef.current = true;
               if (editorRef.current) {
-                editorRef.current.innerHTML = data.content || '';
+                editorRef.current.innerHTML = sanitizeHtml(data.content || '');
               }
               contentRef.current = data.content || '';
               setContent(data.content || '');
@@ -101,7 +123,7 @@ export function DocEditorPage() {
               if (data.senderId !== clientId && data.content !== undefined) {
                 isLocalChangeRef.current = true;
                 if (editorRef.current) {
-                  editorRef.current.innerHTML = data.content;
+                  editorRef.current.innerHTML = sanitizeHtml(data.content);
                 }
                 contentRef.current = data.content;
                 setContent(data.content);
