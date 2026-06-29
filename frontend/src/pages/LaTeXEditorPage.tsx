@@ -8,7 +8,6 @@ import { EditorView } from '@codemirror/view';
 import { useLatexStore } from '../store/latexStore';
 import { useLatexCollab } from '../features/collaboration/useLatexCollab';
 import { roomsApi } from '../core/api/roomsApi';
-import { latexToDocxBlob } from './latexToDocx';
 import { RoomInfo } from '../types';
 import './LaTeXEditorPage.css';
 
@@ -243,48 +242,28 @@ export function LaTeXEditorPage({ onBack }: Props) {
     setStatus('saving-docx');
     setErrorMsg(null);
 
-    let blob: Blob | null = null;
-    let usedFallback = false;
-
     try {
-      // Try the Rust backend first — it produces proper OMML math.
+      // Single source of truth: backend's Rust pipeline produces proper
+      // OMML math and a clean DOCX package. If the backend is unreachable
+      // we surface the error instead of silently swapping in a lower-fidelity
+      // browser fallback that would drift from the canonical output.
       const res = await fetch('/api/latex/to-docx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: snapshot }),
       });
-      if (res.ok) {
-        blob = await res.blob();
-      } else {
-        usedFallback = true;
-        blob = await latexToDocxBlob(snapshot);
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(detail || `Backend returned ${res.status}`);
       }
-    } catch {
-      // Backend unreachable — try the TS fallback before giving up.
-      try {
-        usedFallback = true;
-        blob = await latexToDocxBlob(snapshot);
-      } catch (innerErr) {
-        console.error('DOCX export failed:', innerErr);
-        message.error(`Failed to generate DOCX: ${innerErr instanceof Error ? innerErr.message : 'unknown error'}`);
-        setStatus('error');
-        return;
-      }
-    }
-
-    if (blob) {
-      try {
-        triggerDownload(blob, 'document.docx');
-        if (usedFallback) {
-          message.warning('Backend DOCX converter unavailable; used local fallback');
-        }
-        setStatus('success');
-      } catch (e) {
-        console.error('DOCX download failed:', e);
-        message.error('Browser blocked the DOCX download');
-        setStatus('error');
-      }
-    } else {
+      const blob = await res.blob();
+      triggerDownload(blob, 'document.docx');
+      setStatus('success');
+    } catch (err) {
+      console.error('DOCX export failed:', err);
+      message.error(
+        `Failed to generate DOCX: ${err instanceof Error ? err.message : 'backend unreachable'}`,
+      );
       setStatus('error');
     }
   }, [source]);
