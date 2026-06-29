@@ -47,6 +47,13 @@ permissions:
 
 jobs:
   Trigger_EthicalCheck:
+    # The referenced action `apisec-inc/ethicalcheck-action` cannot be
+    # resolved by GitHub (repo/SHA not found), which causes a hard
+    # job-setup failure that `continue-on-error` cannot suppress.
+    # Gate the entire job behind a repo variable so it is skipped by
+    # default. Set the variable ETHICALCHECK_ENABLED=true once the
+    # action is available or replaced with a working reference.
+    if: ${{ vars.ETHICALCHECK_ENABLED == 'true' }}
     permissions:
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
       actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
