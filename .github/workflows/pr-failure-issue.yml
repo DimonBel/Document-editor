@@ -65,7 +65,7 @@ jobs:
             let logs = '';
             try { logs = fs.readFileSync('/tmp/logs.txt', 'utf8').slice(0, 6000); } catch {}
 
-            const { data: issues } = await github.rest.issues.list({
+            const { data: issues } = await github.rest.issues.listForRepo({
               owner, repo, state: 'open', per_page: 100,
             });
             const tracker = issues.find(i => i.body && i.body.includes(triggerMarker));
