@@ -8,10 +8,15 @@ import { EditorView } from '@codemirror/view';
 import { useLatexStore } from '../store/latexStore';
 import { useLatexCollab } from '../features/collaboration/useLatexCollab';
 import { roomsApi } from '../core/api/roomsApi';
-import { buildInitPage } from './latexBuilder';
 import { latexToDocxBlob } from './latexToDocx';
 import { RoomInfo } from '../types';
 import './LaTeXEditorPage.css';
+
+// The LaTeX preview iframe is loaded as a same-origin static file
+// (frontend/public/latex-preview.html) so we can address it with a
+// concrete origin instead of '*'. This satisfies CodeQL's
+// js/wildcard-postmessage check on both the parent and iframe sides.
+const PREVIEW_IFRAME_SRC = `${import.meta.env.BASE_URL}latex-preview.html`.replace(/\/+/g, '/');
 
 const TEMPLATES: { label: string; source: string }[] = [
   {
@@ -121,8 +126,6 @@ const cmExtensions = [
   EditorView.lineWrapping,
 ];
 
-const INIT_PAGE = buildInitPage();
-
 interface Props { onBack?: () => void; }
 
 export function LaTeXEditorPage({ onBack }: Props) {
@@ -163,6 +166,9 @@ export function LaTeXEditorPage({ onBack }: Props) {
 
   useEffect(() => {
     const handler = async (e: MessageEvent) => {
+      // Defence in depth: only accept messages from our own origin
+      // (the preview iframe is same-origin and verified by the receiver).
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'ltx-ready') {
         iframeReady.current = true;
       } else if (e.data?.type === 'ltx-ok') {
@@ -223,9 +229,11 @@ export function LaTeXEditorPage({ onBack }: Props) {
     setStatus('saving');
     // Snapshot the source we want reflected in the PDF so that the
     // preview iframe (which may be stale) is forced to re-render
-    // before we ask for its HTML.
-    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, '*');
-    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, '*');
+    // before we ask for its HTML. Address the same-origin iframe with a
+    // concrete targetOrigin (no '*').
+    const targetOrigin = window.location.origin;
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, targetOrigin);
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, targetOrigin);
   }, [source]);
 
   const saveDocx = useCallback(async () => {
@@ -292,7 +300,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
     setHasCompiled(true);
     const iframe = iframeRef.current;
     if (iframe?.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'ltx-compile', src: source }, '*');
+      iframe.contentWindow.postMessage({ type: 'ltx-compile', src: source }, window.location.origin);
     }
   }, [source, status]);
 
@@ -510,8 +518,8 @@ export function LaTeXEditorPage({ onBack }: Props) {
           <iframe
             ref={iframeRef}
             className="ltx-iframe"
-            srcDoc={INIT_PAGE}
-            sandbox="allow-scripts allow-modals"
+            src={PREVIEW_IFRAME_SRC}
+            sandbox="allow-scripts allow-modals allow-same-origin"
             title="LaTeX Preview"
             style={{ display: hasCompiled && !(status === 'error' && errorMsg) ? 'block' : 'none' }}
           />
@@ -591,5 +599,3 @@ function ErrorPanel({ text }: { text: string }) {
     </div>
   );
 }
-
-// buildInitPage is imported from ./latexBuilder

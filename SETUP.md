@@ -4,16 +4,20 @@ All workflows below run on `GITHUB_TOKEN` alone — no secrets, no paid API keys
 
 ---
 
-## Workflows already in this repo (work automatically on PR)
+## Workflows already in this repo
 
 | Workflow file           | What it does                                        | Trigger             |
 |-------------------------|-----------------------------------------------------|---------------------|
-| `reviewdog.yml`         | Posts ESLint + clippy lint findings as PR comments  | PR open/sync        |
+| `reviewdog.yml`         | Runs `cargo clippy` (backend); ESLint hook reserved | PR open/sync + push master |
 | `semgrep.yml`           | Static analysis (default + security + secrets)      | PR + push master    |
 | `release-drafter.yml`   | Auto-drafts changelog from merged PR labels         | Push master         |
-| `sonar-community.yml`   | Self-hosted SonarQube Community Build               | PR + push master    |
+| `pr-failure-comment.yml`| Posts/updates a PR failure comment on any failed check | workflow_run (auto) |
+| `pr-failure-issue.yml`  | Opens one auto-maintained `ci-failure` issue per outage | workflow_run (auto) |
+| `sonar-community.yml`   | Self-hosted SonarQube Community Build               | **Manual only** (`workflow_dispatch`) |
 
-All four need only `GITHUB_TOKEN`, which GitHub provides automatically. No setup required.
+All auto-run workflows need only `GITHUB_TOKEN`, which GitHub provides automatically. No setup required.
+
+> **Why is sonar-community manual?** The bundled scanner-cli in `sonarsource/sonarqube-scan-action@v1` is Java 11, and the upstream `sonarqube:community` image is now SonarQube 12.x (Java 17 classes). The workflow now pins `sonarsource/sonarqube-scan-action@v4` with `scannerVersion: 6.2.1.4610` (Java 17) so the manual scan completes, but it remains `workflow_dispatch`-only to avoid pulling the heavy SonarQube image into every PR.
 
 ---
 
@@ -39,7 +43,7 @@ These were considered but removed because they need a paid API key you must obta
 - Claude Code Review (Anthropic API key)
 - OpenAI Codex Review (OpenAI key)
 - Snyk (Snyk token)
-- SonarCloud (Sonar token)
+- SonarCloud (Sonar token) — note: SonarCloud is a paid-token product for private repos; the Community Build above is the free local-container alternative
 - AI Release Notes (OpenAI key)
 - Cursor Bugbot, Macroscope, Sourcegraph Amp, Kodus — paid SaaS tiers
 
@@ -55,4 +59,4 @@ git commit -m "Add free-tier bot workflows and configs"
 git push
 ```
 
-That's it. Every new PR will get reviewdog + semgrep + sonar-community comments automatically, and the GitHub Apps you installed will chime in too.
+That's it. Every new PR gets `cargo clippy` + `semgrep` checks, plus any GitHub Apps you installed. SonarQube is opt-in via the Actions tab.

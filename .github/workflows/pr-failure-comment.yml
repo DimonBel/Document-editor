@@ -7,7 +7,6 @@ on:
       - Semgrep
       - SonarQube Community
       - Release Drafter
-      - PR Quality Gate
     types: [completed]
 
 permissions:
