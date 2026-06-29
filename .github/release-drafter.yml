@@ -1,14 +1,15 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
-version-resolver:
-  major:
-    labels: ["breaking", "major"]
-  minor:
-    labels: ["feature", "enhancement"]
-  patch:
-    labels: ["bug", "fix", "docs"]
-  default: patch
+tag-prefix: ""
+version-template: "$MAJOR.$MINOR.$PATCH"
+change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+exclude-labels: ["skip-changelog"]
+template: |
+  ## Changes
+
+  $CHANGES
 categories:
+  # Changelog categories (rendered in body, grouped by labels)
   - title: "🚀 Features"
     labels: ["feature", "enhancement"]
   - title: "🐛 Bug Fixes"
@@ -17,5 +18,19 @@ categories:
     labels: ["docs", "documentation"]
   - title: "🔧 Maintenance"
     labels: ["chore", "refactor", "ci"]
-change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
-exclude-labels: ["skip-changelog"]
+  # Version resolver categories (no body, just bump semver).
+  - type: "version-resolver"
+    semver-increment: "major"
+    when:
+      labels: ["breaking", "major"]
+  - type: "version-resolver"
+    semver-increment: "minor"
+    when:
+      labels: ["feature", "enhancement"]
+  - type: "version-resolver"
+    semver-increment: "patch"
+    when:
+      labels: ["bug", "fix", "docs"]
+  # Fallback when no other version-resolver category matches.
+  - type: "version-resolver"
+    semver-increment: "patch"
