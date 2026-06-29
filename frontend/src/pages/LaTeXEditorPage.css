@@ -260,3 +260,90 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* ── Outline panel ─────────────────────────────────────────────────────── */
+
+.ltx-panel--outline {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.04);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  overflow: auto;
+}
+
+.ltx-outline {
+  padding: 8px 4px;
+  font-size: 13px;
+}
+
+.ltx-outline--empty {
+  padding: 16px 12px;
+}
+
+.ltx-outline__item {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  padding: 4px 10px !important;
+  border: none !important;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ltx-outline__item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.ltx-outline__item--l1 { padding-left: 10px !important; font-weight: 600; }
+.ltx-outline__item--l2 { padding-left: 22px !important; }
+.ltx-outline__item--l3 { padding-left: 34px !important; color: #666; }
+
+.ltx-outline__title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ltx-outline__line {
+  font-size: 11px;
+  color: #888;
+  margin-left: 8px;
+  font-family: monospace;
+}
+
+/* ── Editor toolbar (symbol palette trigger) ────────────────────────────── */
+
+.ltx-panel__spacer {
+  flex: 1;
+}
+
+/* ── Symbol palette popover ───────────────────────────────────────────── */
+
+.ltx-symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 280px;
+  padding: 4px 0;
+}
+
+.ltx-symbol-btn {
+  font-family: "Cambria Math", "STIX Two Math", serif;
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ltx-symbol-btn:hover {
+  background: rgba(22, 119, 255, 0.1);
+  border-color: rgba(22, 119, 255, 0.3);
+}

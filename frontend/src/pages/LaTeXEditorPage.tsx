@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button, Tooltip, message, Input, Modal, List, Avatar, Tag } from 'antd';
-import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined, FilePdfOutlined, FileWordOutlined, FileTextOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined, FilePdfOutlined, FileWordOutlined, FileTextOutlined, FontSizeOutlined } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { StreamLanguage } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
@@ -9,6 +9,8 @@ import { useLatexStore } from '../store/latexStore';
 import { useLatexCollab } from '../features/collaboration/useLatexCollab';
 import { roomsApi } from '../core/api/roomsApi';
 import { compileLaTeX } from '../core/api/latexApi';
+import { OutlinePanel } from '../features/latex/OutlinePanel';
+import { SymbolPalette } from '../features/latex/SymbolPalette';
 import { RoomInfo } from '../types';
 import './LaTeXEditorPage.css';
 
@@ -126,6 +128,9 @@ const cmExtensions = [
   EditorView.lineWrapping,
 ];
 
+/** Auto-compile debounce window in milliseconds. */
+const AUTOCOMPILE_MS = 600;
+
 interface Props { onBack?: () => void; }
 
 export function LaTeXEditorPage({ onBack }: Props) {
@@ -135,6 +140,8 @@ export function LaTeXEditorPage({ onBack }: Props) {
   const [hasCompiled, setHasCompiled] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeReady = useRef(false);
+  /** CodeMirror EditorView, set via the onCreateEditor callback. */
+  const cmViewRef = useRef<EditorView | null>(null);
 
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCommitModal, setShowCommitModal] = useState(false);
@@ -315,6 +322,41 @@ export function LaTeXEditorPage({ onBack }: Props) {
     }
   }, [source, status]);
 
+  /**
+   * Insert a LaTeX command at the current cursor position. Used by
+   * the symbol palette. Falls back to appending to the source if the
+   * CodeMirror view isn't mounted yet.
+   */
+  const insertAtCursor = useCallback((cmd: string) => {
+    const view = cmViewRef.current;
+    if (!view) return;
+    const insert = `\\${cmd}`;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: from + insert.length },
+    });
+    view.focus();
+  }, []);
+
+  /**
+   * Auto-compile: re-runs `compile` AUTOCOMPILE_MS after the last
+   * source change, but only after the user has compiled once
+   * manually (so the preview is showing). This keeps the preview
+   * fresh while typing without forcing a compile on every keystroke.
+   */
+  useEffect(() => {
+    if (!hasCompiled) return;
+    if (status === 'compiling') return;
+    const t = setTimeout(() => {
+      compile();
+    }, AUTOCOMPILE_MS);
+    return () => clearTimeout(t);
+    // `compile` is intentionally in the deps — it closes over `source`
+    // and `status`, so we want a fresh closure after each source edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, hasCompiled]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -494,16 +536,28 @@ export function LaTeXEditorPage({ onBack }: Props) {
       )}
 
       <div className="ltx-workspace">
+        <div className="ltx-panel ltx-panel--outline">
+          <div className="ltx-panel__label">Outline</div>
+          <OutlinePanel source={source} />
+        </div>
+
         <div className="ltx-panel ltx-panel--editor">
           <div className="ltx-panel__label">
             LaTeX Source
             <span className="ltx-panel__hint">Ctrl+Enter to compile</span>
+            <span className="ltx-panel__spacer" />
+            <Tooltip title="Insert LaTeX symbol">
+              <SymbolPalette onInsert={insertAtCursor}>
+                <Button size="small" icon={<FontSizeOutlined />}>Symbols</Button>
+              </SymbolPalette>
+            </Tooltip>
           </div>
           <div className="ltx-editor-body ltx-editor-body--cm">
             <CodeMirror
               value={source}
               extensions={cmExtensions}
               onChange={handleSourceUpdate}
+              onCreateEditor={(view) => { cmViewRef.current = view; }}
               theme="dark"
               height="100%"
               basicSetup={{
