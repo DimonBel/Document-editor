@@ -18,5 +18,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: release-drafter/release-drafter@v7
+        with:
+          # v7 changed the default config lookup: without an explicit
+          # `config-name` it falls back to a sibling `.github` org
+          # repository (DimonBel/.github), which doesn't exist. Pin
+          # the name explicitly so it loads `.github/release-drafter.yml`
+          # from this repository.
+          config-name: release-drafter.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
