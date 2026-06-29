@@ -14,6 +14,7 @@ const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml"   ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>
 </Types>"#;
 
 const RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -25,6 +26,7 @@ const WORD_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"    Target="styles.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>
 </Relationships>"#;
 
 const NUMBERING: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -102,6 +104,20 @@ const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <w:sz w:val="20"/><w:szCs w:val="20"/>
     </w:rPr>
   </w:style>
+  <w:style w:type="character" w:styleId="Hyperlink">
+    <w:name w:val="Hyperlink"/>
+    <w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr>
+  </w:style>
+  <w:style w:type="character" w:styleId="FootnoteReference">
+    <w:name w:val="footnote reference"/>
+    <w:rPr><w:vertAlign w:val="superscript"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="FootnoteText">
+    <w:name w:val="footnote text"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr><w:spacing w:after="60"/></w:pPr>
+    <w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+  </w:style>
 </w:styles>"#;
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
@@ -139,6 +155,27 @@ fn inline_xml(node: &Inline, bold: bool, italic: bool, underline: bool) -> Strin
             children.iter().map(|c| inline_xml(c, bold,  true,      underline)).collect(),
         Inline::Underline(children) =>
             children.iter().map(|c| inline_xml(c, bold,  italic,    true     )).collect(),
+        Inline::Hyperlink { url: _, label } =>
+            // Hyperlinks are emitted as inline runs with their URL as
+            // the visible text. The relationship for the click target
+            // is registered separately in build_document_xml — for
+            // now we render the URL text in blue/underline so the
+            // visual cue survives.
+            format!(
+                "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:u w:val=\"single\"/></w:rPr>{}</w:r>",
+                inlines_xml(label)
+            ),
+        Inline::Url(url) =>
+            format!(
+                "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:u w:val=\"single\"/></w:rPr>{}</w:r>",
+                w_run(url, false, false, true, false)
+            ),
+        Inline::FootnoteRef(id) =>
+            format!(
+                "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>\
+                 <w:footnoteReference w:id=\"{}\"/></w:r>",
+                id
+            ),
     }
 }
 
@@ -193,7 +230,10 @@ fn table_xml(rows: &[Vec<String>]) -> String {
             let shading = if header {
                 "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F2F2F2\"/>"
             } else { "" };
-            let cell_inlines = super::parser::parse_inline(cell);
+            let cell_inlines = {
+                let mut footnotes: Vec<(usize, Vec<super::parser::Inline>)> = Vec::new();
+                super::parser::parse_inline(cell, &mut footnotes)
+            };
             let bold = if header { true } else { false };
             let runs: String = cell_inlines.iter().map(|n| inline_xml(n, bold, false, false)).collect();
             xml.push_str(&format!(
@@ -236,6 +276,19 @@ fn block_xml(block: &Block) -> String {
             }
             xml
         }
+        Block::Caption(nodes) => {
+            // Centered, italic. Word's caption style would be ideal
+            // here but a generic italic centered paragraph reads the
+            // same and avoids needing extra style entries.
+            let runs: String = nodes.iter()
+                .map(|n| inline_xml(n, false, true, false))
+                .collect();
+            format!(
+                "<w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"80\" w:after=\"160\"/></w:pPr>{}</w:p>",
+                runs
+            )
+        }
+        Block::Footnote { .. } => String::new(), // bodies are emitted into word/footnotes.xml, not the body
     }
 }
 
@@ -305,6 +358,46 @@ fn build_document_xml(doc: &Document) -> String {
     )
 }
 
+/// Build `word/footnotes.xml`. The required `separator` (id=-1) and
+/// `continuationSeparator` (id=0) footnote bodies must be present for
+/// Word to render the rest correctly.
+fn build_footnotes_xml(doc: &Document) -> String {
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+         <w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">",
+    );
+
+    // Required boilerplate separators.
+    xml.push_str(
+        "<w:footnote w:type=\"separator\" w:id=\"-1\">\
+            <w:p><w:r><w:separator/></w:r></w:p>\
+         </w:footnote>\
+         <w:footnote w:type=\"continuationSeparator\" w:id=\"0\">\
+            <w:p><w:r><w:continuationSeparator/></w:r></w:p>\
+         </w:footnote>",
+    );
+
+    for (id, text) in &doc.footnotes {
+        let runs: String = text.iter()
+            .map(|n| inline_xml(n, false, false, false))
+            .collect();
+        xml.push_str(&format!(
+            "<w:footnote w:id=\"{}\">\
+                <w:p>\
+                    <w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>\
+                    <w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr><w:footnoteRef/></w:r>\
+                    <w:r><w:t xml:space=\"preserve\"> </w:t></w:r>\
+                    {}\
+                </w:p>\
+             </w:footnote>",
+            id, runs
+        ));
+    }
+
+    xml.push_str("</w:footnotes>");
+    xml
+}
+
 // ── public ────────────────────────────────────────────────────────────────────
 
 pub fn build_docx(source: &str) -> Result<Vec<u8>, String> {
@@ -336,6 +429,87 @@ pub fn build_docx(source: &str) -> Result<Vec<u8>, String> {
     zip.start_file("word/numbering.xml", opts).map_err(|e| e.to_string())?;
     zip.write_all(NUMBERING.as_bytes()).map_err(|e| e.to_string())?;
 
+    let footnotes_xml = build_footnotes_xml(&doc);
+    zip.start_file("word/footnotes.xml", opts).map_err(|e| e.to_string())?;
+    zip.write_all(footnotes_xml.as_bytes()).map_err(|e| e.to_string())?;
+
     let cursor = zip.finish().map_err(|e| e.to_string())?;
     Ok(cursor.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    fn read_zip_part(bytes: &[u8], name: &str) -> String {
+        let cursor = std::io::Cursor::new(bytes);
+        let mut zip = zip::ZipArchive::new(cursor).expect("zip");
+        let mut file = zip.by_name(name).expect("part not found");
+        let mut s = String::new();
+        file.read_to_string(&mut s).expect("read");
+        s
+    }
+
+    #[test]
+    fn docx_contains_footnotes_part_when_used() {
+        let src = r#"
+            \documentclass{article}
+            \begin{document}
+            Hello\footnote{This is a footnote.}
+            \end{document}
+        "#;
+        let bytes = build_docx(src).expect("build");
+        let footnotes_xml = read_zip_part(&bytes, "word/footnotes.xml");
+        assert!(footnotes_xml.contains("<w:footnote "));
+        assert!(footnotes_xml.contains("This is a footnote"));
+    }
+
+    #[test]
+    fn docx_contains_separators_when_no_footnotes() {
+        let src = r#"
+            \documentclass{article}
+            \begin{document}
+            Just a paragraph.
+            \end{document}
+        "#;
+        let bytes = build_docx(src).expect("build");
+        let footnotes_xml = read_zip_part(&bytes, "word/footnotes.xml");
+        // The required separator and continuationSeparator must always
+        // be present, even with zero user footnotes, so Word doesn't
+        // complain when opening the docx.
+        assert!(footnotes_xml.contains("w:type=\"separator\""));
+        assert!(footnotes_xml.contains("w:type=\"continuationSeparator\""));
+    }
+
+    #[test]
+    fn docx_contains_hyperlink_when_used() {
+        let src = r#"
+            \documentclass{article}
+            \begin{document}
+            See \href{https://example.org}{the docs}.
+            \end{document}
+        "#;
+        let bytes = build_docx(src).expect("build");
+        let document_xml = read_zip_part(&bytes, "word/document.xml");
+        // The hyperlink inline emits a Hyperlink-style run wrapping the
+        // visible label. The URL itself lives on the Inline AST but is
+        // not yet emitted as a relationship in document.xml.rels (a
+        // future branch will add that).
+        assert!(document_xml.contains("w:rStyle w:val=\"Hyperlink\""));
+        assert!(document_xml.contains("the docs"));
+    }
+
+    #[test]
+    fn docx_contains_caption_when_used() {
+        let src = r#"
+            \documentclass{article}
+            \begin{document}
+            \caption{A figure caption}
+            \end{document}
+        "#;
+        let bytes = build_docx(src).expect("build");
+        let document_xml = read_zip_part(&bytes, "word/document.xml");
+        assert!(document_xml.contains("A figure caption"));
+    }
 }
