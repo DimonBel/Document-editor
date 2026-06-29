@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button, Tooltip, message, Input, Modal, List, Avatar, Tag } from 'antd';
-import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, LoadingOutlined, CopyOutlined, WarningOutlined, TeamOutlined, SaveOutlined, FilePdfOutlined, FileWordOutlined, FileTextOutlined } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { StreamLanguage } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
@@ -8,6 +8,7 @@ import { EditorView } from '@codemirror/view';
 import { useLatexStore } from '../store/latexStore';
 import { useLatexCollab } from '../features/collaboration/useLatexCollab';
 import { roomsApi } from '../core/api/roomsApi';
+import { compileLaTeX } from '../core/api/latexApi';
 import { RoomInfo } from '../types';
 import './LaTeXEditorPage.css';
 
@@ -112,7 +113,7 @@ Consider the square with side $(a+b)$. \\qquad $\\square$
   },
 ];
 
-type Status = 'idle' | 'compiling' | 'success' | 'error' | 'saving' | 'saving-docx';
+type Status = 'idle' | 'compiling' | 'success' | 'error' | 'saving' | 'saving-docx' | 'saving-pdftex';
 
 const cmExtensions = [
   StreamLanguage.define(stex),
@@ -233,6 +234,37 @@ export function LaTeXEditorPage({ onBack }: Props) {
     const targetOrigin = window.location.origin;
     iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, targetOrigin);
     iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, targetOrigin);
+  }, [source]);
+
+  /**
+   * Compile the LaTeX source on the backend with a real pdflatex
+   * install and download the produced PDF. Requires pdflatex on the
+   * server PATH (texlive on Linux, MiKTeX on Windows). Falls back to a
+   * clear error message if the binary isn't installed.
+   */
+  const savePdfTex = useCallback(async () => {
+    const snapshot = source;
+    setStatus('saving-pdftex');
+    setErrorMsg(null);
+
+    const result = await compileLaTeX(snapshot);
+    if (result.ok) {
+      triggerDownload(result.pdfBlob, 'document.pdf');
+      setStatus('success');
+      return;
+    }
+
+    console.error('pdflatex compile failed:', result.error);
+    setErrorMsg(result.log || result.error);
+    setStatus('error');
+    if (/pdflatex not found/i.test(result.error)) {
+      message.error(
+        'Server-side pdflatex is not installed. Install texlive (Linux) or MiKTeX (Windows), or use "Save as PDF" for a browser-only export.',
+        6,
+      );
+    } else {
+      message.error(`pdflatex compile failed: ${result.error}`, 6);
+    }
   }, [source]);
 
   const saveDocx = useCallback(async () => {
@@ -406,13 +438,23 @@ export function LaTeXEditorPage({ onBack }: Props) {
           {status === 'success'   && <span className="ltx-badge ltx-badge--success">✓ OK</span>}
           {status === 'error'     && <span className="ltx-badge ltx-badge--error">✗ Error</span>}
           {status === 'compiling' && <span className="ltx-badge ltx-badge--loading"><LoadingOutlined spin /> Compiling…</span>}
-          {(status === 'success' || status === 'saving' || status === 'saving-docx') && (<>
-            <Tooltip title="Download as PDF">
+          {(status === 'success' || status === 'saving' || status === 'saving-docx' || status === 'saving-pdftex') && (<>
+            <Tooltip title="Compile on the server with pdflatex and download the PDF. Requires a LaTeX install on the server (texlive / MiKTeX).">
+              <Button
+                icon={status === 'saving-pdftex' ? <LoadingOutlined /> : <FileTextOutlined />}
+                loading={status === 'saving-pdftex'}
+                onClick={savePdfTex}
+                disabled={status === 'saving' || status === 'saving-docx' || status === 'saving-pdftex'}
+              >
+                Compile with LaTeX
+              </Button>
+            </Tooltip>
+            <Tooltip title="Render the current preview to PDF in the browser (no server install required)">
               <Button
                 icon={status === 'saving' ? <LoadingOutlined /> : <FilePdfOutlined />}
                 loading={status === 'saving'}
                 onClick={savePdf}
-                disabled={status === 'saving' || status === 'saving-docx'}
+                disabled={status === 'saving' || status === 'saving-docx' || status === 'saving-pdftex'}
               >
                 Save as PDF
               </Button>
@@ -422,7 +464,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
                 icon={status === 'saving-docx' ? <LoadingOutlined /> : <FileWordOutlined />}
                 loading={status === 'saving-docx'}
                 onClick={saveDocx}
-                disabled={status === 'saving' || status === 'saving-docx'}
+                disabled={status === 'saving' || status === 'saving-docx' || status === 'saving-pdftex'}
               >
                 Save as DOCX
               </Button>
