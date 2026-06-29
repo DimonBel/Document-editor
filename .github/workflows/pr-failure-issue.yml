@@ -1,0 +1,114 @@
+name: CI Failure Issue
+
+on:
+  workflow_run:
+    workflows:
+      - reviewdog
+      - Semgrep
+      - SonarQube Community
+      - Release Drafter
+      - PR Quality Gate
+    types: [completed]
+
+permissions:
+  issues: write
+  actions: read
+  contents: read
+
+jobs:
+  open-failure-issue:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download run logs
+        run: |
+          set +e
+          mkdir -p /tmp/logs
+          curl -fsSL -o /tmp/run.zip \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ github.event.workflow_run.logs_url }}"
+          if [ -s /tmp/run.zip ]; then
+            unzip -oq /tmp/run.zip -d /tmp/logs 2>/dev/null
+            {
+              for f in /tmp/logs/*.txt; do
+                [ -f "$f" ] || continue
+                echo "===== $(basename "$f") ====="
+                head -c 4000 "$f"
+                echo
+              done
+            } > /tmp/logs.txt 2>/dev/null
+            rm -rf /tmp/logs /tmp/run.zip
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open or update tracking issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const runId = run.id;
+            const runUrl = run.html_url;
+            const workflowName = run.name;
+            const branch = run.head_branch;
+            const sha = run.head_sha.substring(0, 7);
+            const actor = run.triggering_actor?.login || run.actor?.login || 'unknown';
+            const prNumbers = (run.pull_requests || []).map(pr => pr.number);
+            const eventName = run.event;
+            const createdAt = run.created_at;
+
+            const triggerMarker = '<!-- ci-failure-tracker -->';
+            const runMarker = `<!-- ci-failure-tracker:run=${runId} -->`;
+
+            let logs = '';
+            try { logs = fs.readFileSync('/tmp/logs.txt', 'utf8').slice(0, 6000); } catch {}
+
+            const { data: issues } = await github.rest.issues.list({
+              owner, repo, state: 'open', labels: 'ci-failure', per_page: 50,
+            });
+            const tracker = issues.find(i => i.body && i.body.includes(triggerMarker));
+
+            const body = [
+              triggerMarker,
+              runMarker,
+              '## ❌ CI Failure Detected',
+              '',
+              `| Field | Value |`,
+              `|---|---|`,
+              `| Workflow | \`${workflowName}\` |`,
+              `| Branch | \`${branch}\` |`,
+              `| Commit | \`${sha}\` |`,
+              `| Triggered by | @${actor} |`,
+              `| Event | \`${eventName}\` |`,
+              prNumbers.length > 0 ? `| PR | #${prNumbers.join(', #')} |` : '',
+              `| Run started | ${createdAt} |`,
+              '',
+              `📋 [View full run logs](${runUrl})`,
+              '',
+              '### Log excerpt',
+              logs
+                ? '```\n' + logs + '\n```'
+                : '_No log excerpt could be retrieved — see run link above._',
+              '',
+              '---',
+              '_Auto-maintained by the CI Failure Issue workflow._',
+              '_A new failure on the same open issue updates this body in place._',
+            ].filter(Boolean).join('\n');
+
+            if (tracker) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: tracker.number, body,
+              });
+              core.info(`Updated existing tracker issue #${tracker.number}.`);
+              return;
+            }
+
+            const title = `❌ CI Failure — ${workflowName} on ${branch} (${sha})`;
+            const { data: issue } = await github.rest.issues.create({
+              owner, repo, title, body, labels: ['ci-failure', 'bug'],
+            });
+            core.info(`Opened new tracker issue #${issue.number}.`);
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
