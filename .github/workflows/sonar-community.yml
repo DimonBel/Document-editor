@@ -21,6 +21,8 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+    env:
+      SONAR_SCANNER_VERSION: 6.2.1.4610
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,13 +30,13 @@ jobs:
 
       - name: Wait for SonarQube
         run: |
-          for i in {1..120}; do
+          for i in {1..180}; do
             body=$(curl -s http://127.0.0.1:9000/api/system/status || echo "")
             if echo "$body" | grep -q '"status":"UP"'; then
               echo "SonarQube UP after ${i} attempts"
               break
             fi
-            echo "Waiting for SonarQube ($i/120)..."
+            echo "Waiting for SonarQube ($i/180)..."
             sleep 5
           done
 
@@ -52,11 +54,12 @@ jobs:
         working-directory: backend
         run: cargo check
 
-      - uses: sonarsource/sonarqube-scan-action@v1
+      - uses: sonarsource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: http://sonarqube:9000
         with:
+          scannerVersion: ${{ env.SONAR_SCANNER_VERSION }}
           args: >
             -Dsonar.projectKey=whiteboard
             -Dsonar.sources=backend/src,frontend/src

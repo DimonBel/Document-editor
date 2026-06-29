@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="onKaTeXReady()"></script>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:"Computer Modern","Georgia",serif;max-width:780px;margin:48px auto;
+       padding:0 48px 64px;font-size:16px;line-height:1.7;color:#111;background:#fff}
+  h1{font-size:1.9em;text-align:center;margin:.3em 0 .1em}
+  h2{font-size:1.35em;margin:1.6em 0 .4em;border-bottom:1px solid #ddd;padding-bottom:3px}
+  h3{font-size:1.15em;margin:1.2em 0 .3em}
+  h4{font-size:1em;margin:1em 0 .2em}
+  .author,.date{text-align:center;color:#555;margin:3px 0;font-size:.95em}
+  p{margin:.5em 0}
+  ul,ol{padding-left:2em;margin:.4em 0}
+  li{margin:.2em 0}
+  table{border-collapse:collapse;margin:1em auto}
+  td,th{border:1px solid #999;padding:5px 12px}
+  th{background:#f5f5f5;font-weight:600}
+  code,tt{font-family:"Courier New",monospace;font-size:.88em;background:#f3f3f3;padding:1px 4px;border-radius:3px}
+  pre{background:#f3f3f3;padding:14px;border-radius:5px;overflow:auto;font-size:.85em}
+  .katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}
+  .error{color:#c0392b;background:#fee;padding:14px;border-radius:5px;font-family:monospace;
+         white-space:pre-wrap;font-size:13px;border-left:4px solid #c0392b}
+  @media print{
+    body{margin:0;padding:24px 48px;max-width:100%}
+    .error{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+var katexReady = false;
+var pendingSrc = null;
+var parentOrigin = (window.location !== window.parent.location) ? window.location.origin : null;
+
+function onKaTeXReady() {
+  katexReady = true;
+  // Same-origin iframe: send to the parent's origin. Use '*' only as a
+  // last-resort fallback if we cannot determine the parent origin (should
+  // never happen for /latex-preview.html loaded from the same host).
+  var target = parentOrigin || window.location.origin;
+  parent.postMessage({type:'ltx-ready'}, target);
+  if (pendingSrc !== null) { render(pendingSrc); pendingSrc = null; }
+}
+
+window.addEventListener('message', function(e) {
+  if (!e.data) return;
+  // Defence in depth: only accept messages from our own origin.
+  if (e.origin !== window.location.origin) return;
+  if (e.data.type === 'ltx-compile') {
+    if (katexReady) render(e.data.src);
+    else pendingSrc = e.data.src;
+  } else if (e.data.type === 'ltx-get-html') {
+    var target = parentOrigin || window.location.origin;
+    parent.postMessage({type:'ltx-html', html: document.documentElement.outerHTML}, target);
+  }
+});
+
+function render(src) {
+  try {
+    document.getElementById('out').innerHTML = latexToHtml(src);
+    renderMathInElement(document.body, {
+      delimiters: [
+        {left:'$$',right:'$$',display:true},
+        {left:'$',right:'$',display:false}
+      ],
+      macros: {
+        "\\R": "\\mathbb{R}",
+        "\\N": "\\mathbb{N}",
+        "\\Z": "\\mathbb{Z}",
+        "\\qed": "\\square"
+      },
+      throwOnError: false,
+      errorColor: '#c0392b'
+    });
+    var target = parentOrigin || window.location.origin;
+    parent.postMessage({type:'ltx-ok'}, target);
+  } catch(e) {
+    document.getElementById('out').innerHTML =
+      '<div class="error">'+String(e).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</div>';
+    var target = parentOrigin || window.location.origin;
+    parent.postMessage({type:'ltx-err',msg:String(e)}, target);
+  }
+}
+function latexToHtml(src) {
+  src = src.replace(/%[^\n]*/g, '');
+  var title = '', author = '', date = '';
+  src = src.replace(/\\title\{([^}]*)\}/g,  function(_,t){title=t;return '';});
+  src = src.replace(/\\author\{([^}]*)}/, function(_,a){author=a;return '';});
+  src = src.replace(/\\date\{([^}]*)}/, function(_,d){
+    date = d==='\\today' ? new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : d;
+    return '';
+  });
+  var docMatch = src.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
+  var body = docMatch ? docMatch[1] : src;
+  var math = [];
+  function saveMath(tex, display) {
+    var id = '__M'+math.length+'__';
+    math.push(display ? '$$'+tex+'$$' : '$'+tex+'$');
+    return id;
+  }
+  body = body.replace(/\\begin\{equation\*?}([\s\S]*?)\\end\{equation\*?}/g,
+    function(_,c){return saveMath(c,true);});
+  body = body.replace(/\\begin\{align\*?}([\s\S]*?)\\end\{align\*?}/g,
+    function(_,c){return saveMath('\\begin{aligned}'+c+'\\end{aligned}',true);});
+  body = body.replace(/\\begin\{gather\*?}([\s\S]*?)\\end\{gather\*?}/g,
+    function(_,c){return saveMath(c,true);});
+  body = body.replace(/\\begin\{multline\*?}([\s\S]*?)\\end\{multline\*?}/g,
+    function(_,c){return saveMath(c,true);});
+  body = body.replace(/\\\[([\s\S]*?)\\\]/g,
+    function(_,c){return saveMath(c,true);});
+  body = body.replace(/\$\$([\s\S]*?)\$\$/g,
+    function(_,c){return saveMath(c,true);});
+  body = body.replace(/\\\(([\s\S]*?)\\\)/g,
+    function(_,c){return saveMath(c,false);});
+  // Inline $...$ math. No length cap (long equations were silently
+  // truncated before) and $ preceded by an odd number of backslashes
+  // is treated as a literal \$ escape, not as a math delimiter.
+  body = body.replace(/((?:^|[^\\])(?:\\\\)*)\$([^\$\n]+?)\$/g,
+    function(_, prefix, c){ return prefix + saveMath(c, false); });
+  var verb = [];
+  body = body.replace(/\\begin\{verbatim}([\s\S]*?)\\end\{verbatim}/g, function(_,c){
+    var id='__V'+verb.length+'__';
+    verb.push('<pre>'+escHtml(c)+'</pre>'); return id;
+  });
+  body = body.replace(/\\maketitle/g, '__TITLE__');
+  body = body.replace(/\\(documentclass|usepackage|geometry|pagestyle|thispagestyle|setlength|renewcommand|newcommand|newtheorem|theoremstyle|DeclareMathOperator|providecommand|RequirePackage)\b[^\n]*/g,'');
+  body = processEnv(body, 'itemize', function(c){
+    return '<ul>'+c.split(/\\item\b/).filter(function(s){return s.trim();})
+      .map(function(s){return '<li>'+s.trim()+'</li>';}).join('')+'</ul>';
+  });
+  body = processEnv(body, 'enumerate', function(c){
+    return '<ol>'+c.split(/\\item\b/).filter(function(s){return s.trim();})
+      .map(function(s){return '<li>'+s.trim()+'</li>';}).join('')+'</ol>';
+  });
+  body = processEnv(body, 'description', function(c){
+    return '<dl>'+c.split(/\\item\b/).filter(function(s){return s.trim();})
+      .map(function(s){
+        var m=s.match(/^\[([^\]]*)\](.*)/s);
+        return m ? '<dt><strong>'+m[1]+'</strong></dt><dd>'+m[2].trim()+'</dd>'
+                 : '<dd>'+s.trim()+'</dd>';
+      }).join('')+'</dl>';
+  });
+  body = processEnv(body, 'tabular', function(c){
+    c = c.replace(/\\hline/g,'');
+    var rows = c.split(/\\\\/).map(function(r){return r.trim();}).filter(Boolean);
+    return '<table>'+rows.map(function(row,i){
+      var cells = row.split('&').map(function(cell){return cell.trim();});
+      var tag = i===0?'th':'td';
+      return '<tr>'+cells.map(function(cell){
+        return '<'+tag+'>'+cell+'</'+tag+'>';
+      }).join('')+'</tr>';
+    }).join('')+'</table>';
+  });
+  body = processEnv(body, 'abstract', function(c){
+    return '<div style="margin:1.5em 3em;font-size:.95em"><strong>Abstract.</strong> '+c.trim()+'</div>';
+  });
+  body = processEnv(body, 'quote', function(c){return '<blockquote>'+c.trim()+'</blockquote>';});
+  body = processEnv(body, 'quotation', function(c){return '<blockquote>'+c.trim()+'</blockquote>';});
+  body = body.replace(/\\begin\{center}([\s\S]*?)\\end\{center}/g,'<div style="text-align:center">$1</div>');
+  body = body.replace(/\\begin\{flushleft}([\s\S]*?)\\end\{flushleft}/g,'$1');
+  body = body.replace(/\\begin\{flushright}([\s\S]*?)\\end\{flushright}/g,'<div style="text-align:right">$1</div>');
+  body = body.replace(/\\chapter\*?\{([^}]*)}/g,'<h1>$1</h1>');
+  body = body.replace(/\\section\*?\{([^}]*)}/g,'<h2>$1</h2>');
+  body = body.replace(/\\subsection\*?\{([^}]*)}/g,'<h3>$1</h3>');
+  body = body.replace(/\\subsubsection\*?\{([^}]*)}/g,'<h4>$1</h4>');
+  body = body.replace(/\\paragraph\*?\{([^}]*)}/g,'<strong>$1</strong> ');
+  body = body.replace(/\\textbf\{([^}]*)}/g,'<strong>$1</strong>');
+  body = body.replace(/\\textit\{([^}]*)}/g,'<em>$1</em>');
+  body = body.replace(/\\emph\{([^}]*)}/g,'<em>$1</em>');
+  body = body.replace(/\\underline\{([^}]*)}/g,'<u>$1</u>');
+  body = body.replace(/\\texttt\{([^}]*)}/g,'<code>$1</code>');
+  body = body.replace(/\\textrm\{([^}]*)}/g,'$1');
+  body = body.replace(/\\text\{([^}]*)}/g,'$1');
+  // LaTeX 2.09 style {\bf ...}, {\it ...}, {\tt ...}. Match the
+  // outer pair only and let the inner text fall through unchanged so
+  // nested braces survive (e.g. {\bf {nested}}).
+  body = body.replace(/\{\\bf\s+([\s\S]*?)\}/g, '<strong>$1</strong>');
+  body = body.replace(/\{\\it\s+([\s\S]*?)\}/g, '<em>$1</em>');
+  body = body.replace(/\{\\tt\s+([\s\S]*?)\}/g, '<code>$1</code>');
+  body = body.replace(/\\LaTeX\b/g,'L<sup style="font-size:.7em">A</sup>T<sub style="font-size:.7em">E</sub>X');
+  body = body.replace(/\\TeX\b/g,'T<sub style="font-size:.7em">E</sub>X');
+  body = body.replace(/\\today\b/g, new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}));
+  body = body.replace(/---/g,'\u2014');
+  body = body.replace(/--/g,'\u2013');
+  body = body.replace(/``/g,'\u201C');
+  body = body.replace(/''/g,'\u201D');
+  body = body.replace(/\\qquad\b/g,'\u2003\u2003');
+  body = body.replace(/\\quad\b/g,'\u2003');
+  body = body.replace(/\\,/g,'\u2009');
+  body = body.replace(/\\;/g,'\u2004');
+  body = body.replace(/~~/g,'\u00A0');
+  body = body.replace(/~/g,'\u00A0');
+  body = body.replace(/\\%/g,'%');
+  body = body.replace(/\\&/g,'&amp;');
+  body = body.replace(/\\\$/g,'$');
+  body = body.replace(/\\\{/g,'{');
+  body = body.replace(/\\\}/g,'}');
+  body = body.replace(/\\#/g,'#');
+  body = body.replace(/\\_/g,'_');
+  body = body.replace(/\\footnote\{([^}]*)}/g,'<sup title="$1">\u2020</sup>');
+  body = body.replace(/\\label\{[^}]*}/g,'');
+  body = body.replace(/\\ref\{([^}]*)}/g,'[ref]');
+  body = body.replace(/\\cite\{([^}]*)}/g,'[$1]');
+  body = body.replace(/\\url\{([^}]*)}/g,'<a href="$1">$1</a>');
+  body = body.replace(/\\href\{([^}]*)\}\{([^}]*)}/g,'<a href="$1">$2</a>');
+  body = body.replace(/\\\\(\[[^\]]*\])?/g,'<br>');
+  body = body.replace(/\\newline\b/g,'<br>');
+  body = body.replace(/\\par\b/g,'\n\n');
+  body = body.replace(/\\noindent\b/g,'');
+  body = body.replace(/\\smallskip\b/g,'<div style="height:.3em"></div>');
+  body = body.replace(/\\bigskip\b/g,'<div style="height:1.2em"></div>');
+  body = body.replace(/\\vspace\{[^}]*}/g,'<div style="height:.8em"></div>');
+  body = body.replace(/\\hspace\{[^}]*}/g,' ');
+  body = body.replace(/\\clearpage\b|\\newpage\b/g,'<hr style="border:none;margin:2em 0">');
+  body = body.replace(/\\(tableofcontents|listoffigures|listoftables|bibliography|bibliographystyle|printbibliography|appendix|frontmatter|mainmatter|backmatter|centering|raggedright|raggedleft|normalsize|small|large|Large|LARGE|huge|Huge|tiny|footnotesize|normalfont|rmfamily|sffamily|ttfamily|bfseries|itshape|upshape|mdseries)\b\{[^}]*\}/g,'');
+  body = body.replace(/\\(tableofcontents|listoffigures|listoftables|bibliography|bibliographystyle|printbibliography|appendix|frontmatter|mainmatter|backmatter|centering|raggedright|raggedleft|normalsize|small|large|Large|LARGE|huge|Huge|tiny|footnotesize|normalfont|rmfamily|sffamily|ttfamily|bfseries|itshape|upshape|mdseries)\b/g,'');
+  body = body.replace(/\n\s*\n/g,'</p><p>');
+  var html = '<p>'+body.trim()+'</p>';
+  html = html.replace(/__M(\d+)__/g, function(_,i){return math[+i];});
+  html = html.replace(/__V(\d+)__/g, function(_,i){return verb[+i];});
+  var titleBlock = '';
+  if (title) titleBlock += '<h1>'+title+'</h1>';
+  if (author) titleBlock += '<p class="author">'+author+'</p>';
+  if (date)   titleBlock += '<p class="date">'+date+'</p>';
+  if (titleBlock) titleBlock += '<hr style="border:none;border-top:1px solid #ddd;margin:1em 0">';
+  html = html.replace('__TITLE__', titleBlock);
+  html = html.replace(/<p>\s*<\/p>/g,'');
+  html = html.replace(/<p>(\s*<(?:h[1-6]|ul|ol|dl|table|div|blockquote|hr|pre))/g,'$1');
+  html = html.replace(/(<\/(?:h[1-6]|ul|ol|dl|table|div|blockquote|hr|pre)>)\s*<\/p>/g,'$1');
+  return html;
+}
+function processEnv(src, env, fn) {
+  var re = new RegExp('\\\\begin\\{'+env+'\\}(\\{[^}]*\\})?([\\s\\S]*?)\\\\end\\{'+env+'\\}','g');
+  return src.replace(re, function(_, args, content){ return fn(content, args||''); });
+}
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>

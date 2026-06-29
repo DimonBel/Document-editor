@@ -17,7 +17,7 @@ All workflows below run on `GITHUB_TOKEN` alone — no secrets, no paid API keys
 
 All auto-run workflows need only `GITHUB_TOKEN`, which GitHub provides automatically. No setup required.
 
-> **Why is sonar-community manual?** The bundled scanner-cli in `sonarsource/sonarqube-scan-action@v1` is Java 11, and the upstream `sonarqube:community` image is now SonarQube 12.x (Java 17 classes). The v1 action doesn't accept a scanner-version override, so the in-PR scan can't complete. Trigger it from the Actions tab when you want a manual report.
+> **Why is sonar-community manual?** The bundled scanner-cli in `sonarsource/sonarqube-scan-action@v1` is Java 11, and the upstream `sonarqube:community` image is now SonarQube 12.x (Java 17 classes). The workflow now pins `sonarsource/sonarqube-scan-action@v4` with `scannerVersion: 6.2.1.4610` (Java 17) so the manual scan completes, but it remains `workflow_dispatch`-only to avoid pulling the heavy SonarQube image into every PR.
 
 ---
 
