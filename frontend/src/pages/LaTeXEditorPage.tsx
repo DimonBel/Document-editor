@@ -224,8 +224,8 @@ export function LaTeXEditorPage({ onBack }: Props) {
     // Snapshot the source we want reflected in the PDF so that the
     // preview iframe (which may be stale) is forced to re-render
     // before we ask for its HTML.
-    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, '*'); // nosemgrep: target srcdoc iframe (origin=null)
-    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, '*'); // nosemgrep: target srcdoc iframe (origin=null)
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-compile', src: source }, '*'); // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- srcdoc iframe origin is null
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ltx-get-html' }, '*'); // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- srcdoc iframe origin is null
   }, [source]);
 
   const saveDocx = useCallback(async () => {
@@ -292,7 +292,7 @@ export function LaTeXEditorPage({ onBack }: Props) {
     setHasCompiled(true);
     const iframe = iframeRef.current;
     if (iframe?.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'ltx-compile', src: source }, '*'); // nosemgrep: target srcdoc iframe (origin=null)
+      iframe.contentWindow.postMessage({ type: 'ltx-compile', src: source }, '*'); // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- srcdoc iframe origin is null
     }
   }, [source, status]);
 

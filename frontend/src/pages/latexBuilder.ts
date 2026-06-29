@@ -45,7 +45,7 @@ export function buildInitPage(): string {
 '\n' +
 'function onKaTeXReady() {\n' +
 '  katexReady = true;\n' +
-'      parent.postMessage({type:\'ltx-ready\'},\'*\');\n' + // nosemgrep
+'    parent.postMessage({type:\'ltx-ready\'},\'*\');\n' + // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
 '  if (pendingSrc !== null) { render(pendingSrc); pendingSrc = null; }\n' +
 '}\n' +
 '\n' +
@@ -55,7 +55,7 @@ export function buildInitPage(): string {
 '    if (katexReady) render(e.data.src);\n' +
 '    else pendingSrc = e.data.src;\n' +
 '  } else if (e.data.type === \'ltx-get-html\') {\n' +
-'    parent.postMessage({type:\'ltx-html\', html: document.documentElement.outerHTML}, \'*\');\n' + // nosemgrep
+'    parent.postMessage({type:\'ltx-html\', html: document.documentElement.outerHTML}, \'*\');\n' + // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
 '  }\n' +
 '});\n' +
 '\n' +
@@ -76,11 +76,11 @@ export function buildInitPage(): string {
 '      throwOnError: false,\n' +
 '      errorColor: \'#c0392b\'\n' +
 '    });\n' +
-'    parent.postMessage({type:\'ltx-ok\'},\'*\');\n' + // nosemgrep
+'    parent.postMessage({type:\'ltx-ok\'},\'*\');\n' + // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
 '  } catch(e) {\n' +
 '    document.getElementById(\'out\').innerHTML =\n' +
 '      \'<div class="error">\'+String(e).replace(/&/g,\'&amp;\').replace(/</g,\'&lt;\')+\'</div>\';\n' +
-'    parent.postMessage({type:\'ltx-err\',msg:String(e)},\'*\');\n' + // nosemgrep
+'    parent.postMessage({type:\'ltx-err\',msg:String(e)},\'*\');\n' + // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
 '  }\n' +
 '}\n' +
 'function latexToHtml(src) {\n' +

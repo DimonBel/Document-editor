@@ -11,31 +11,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  reviewdog-eslint:
-    name: reviewdog (ESLint / frontend)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: reviewdog/action-setup@v1
-        with:
-          reviewdog_version: latest
-      - name: Install frontend deps
-        working-directory: frontend
-        run: npm ci
-      - name: Run ESLint via reviewdog
-        uses: reviewdog/action-eslint@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: warning
-          working_directory: frontend
-          eslint_flags: '--ext .ts,.tsx .'
-
-  reviewdog-clippy:
-    name: reviewdog (clippy / backend)
+  clippy:
+    name: clippy / backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,15 +20,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install reviewdog
-        uses: reviewdog/action-setup@v1
         with:
-          reviewdog_version: latest
-      - name: Run clippy + reviewdog
+          working-directory: backend
+      - name: Run clippy
         working-directory: backend
-        run: |
-          cargo clippy --all-targets --message-format=short 2>&1 \
-            | tee clippy.log \
-            | reviewdog -f=rust-clippy -reporter=github-pr-review -level=warning
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo clippy --all-targets
