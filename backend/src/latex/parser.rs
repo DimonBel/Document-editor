@@ -8,6 +8,12 @@ pub enum Inline {
     Underline(Vec<Inline>),
     Code(String),
     InlineMath(String),
+    /// `\href{url}{text}` — clickable link in the output.
+    Hyperlink { url: String, label: Vec<Inline> },
+    /// `\url{url}` — bare URL rendered as the URL itself but clickable.
+    Url(String),
+    /// Reference into `Document::footnotes` by id.
+    FootnoteRef(usize),
 }
 
 #[derive(Debug)]
@@ -20,6 +26,14 @@ pub enum Block {
     Table { rows: Vec<Vec<String>> },
     DisplayMath(String),
     Verbatim(String),
+    /// `\caption{...}` — rendered as centered italic text below a
+    /// figure/table placeholder. The parser emits a placeholder block
+    /// before the caption so authors can position them correctly.
+    Caption(Vec<Inline>),
+    /// A footnote body, keyed by the same id referenced via
+    /// `Inline::FootnoteRef`. Collected during parsing and emitted
+    /// into `word/footnotes.xml` by the DOCX writer.
+    Footnote { id: usize, text: Vec<Inline> },
 }
 
 pub struct Document {
@@ -27,6 +41,10 @@ pub struct Document {
     pub author: Option<String>,
     pub date: Option<String>,
     pub blocks: Vec<Block>,
+    /// Footnote bodies, indexed by `Inline::FootnoteRef`. Insertion
+    /// order preserves the order of `\footnote{...}` commands in the
+    /// source.
+    pub footnotes: Vec<(usize, Vec<Inline>)>,
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -97,7 +115,7 @@ fn today() -> String {
 
 // ── inline parser ─────────────────────────────────────────────────────────────
 
-pub fn parse_inline(src: &str) -> Vec<Inline> {
+pub fn parse_inline(src: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Inline> {
     let mut result: Vec<Inline> = Vec::new();
     let mut buf = String::new();
     let ch: Vec<char> = src.chars().collect();
@@ -203,7 +221,7 @@ pub fn parse_inline(src: &str) -> Vec<Inline> {
                         flush!();
                         let rest: String = ch[cmd_end..].iter().collect();
                         if let Some((inner, _)) = take_braced(&rest, 0) {
-                            result.push(Inline::Bold(parse_inline(&inner)));
+                            result.push(Inline::Bold(parse_inline(&inner, footnotes)));
                             i = cmd_end + 1 + inner.len() + 1;
                         } else { i = cmd_end; }
                         continue;
@@ -212,7 +230,7 @@ pub fn parse_inline(src: &str) -> Vec<Inline> {
                         flush!();
                         let rest: String = ch[cmd_end..].iter().collect();
                         if let Some((inner, _)) = take_braced(&rest, 0) {
-                            result.push(Inline::Italic(parse_inline(&inner)));
+                            result.push(Inline::Italic(parse_inline(&inner, footnotes)));
                             i = cmd_end + 1 + inner.len() + 1;
                         } else { i = cmd_end; }
                         continue;
@@ -221,7 +239,7 @@ pub fn parse_inline(src: &str) -> Vec<Inline> {
                         flush!();
                         let rest: String = ch[cmd_end..].iter().collect();
                         if let Some((inner, _)) = take_braced(&rest, 0) {
-                            result.push(Inline::Underline(parse_inline(&inner)));
+                            result.push(Inline::Underline(parse_inline(&inner, footnotes)));
                             i = cmd_end + 1 + inner.len() + 1;
                         } else { i = cmd_end; }
                         continue;
@@ -247,10 +265,51 @@ pub fn parse_inline(src: &str) -> Vec<Inline> {
                     "TeX"   => { buf.push_str("TeX");   i = cmd_end; continue; }
                     "today" => { buf.push_str(&today()); i = cmd_end; continue; }
                     "footnote" => {
-                        // skip footnote content
+                        // Register the footnote body and emit a FootnoteRef
+                        // placeholder. The DOCX writer renders a real
+                        // <w:footnoteReference> pointing at word/footnotes.xml.
+                        flush!();
                         let rest: String = ch[cmd_end..].iter().collect();
-                        if let Some((_, after)) = take_braced(&rest, 0) {
-                            i = cmd_end + after - rest.len() + rest.len() - after + 1 + inner_len(&rest, 0);
+                        if let Some((inner, _)) = take_braced(&rest, 0) {
+                            let id = footnotes.len() + 1;
+                            let text = parse_inline(&inner, footnotes);
+                            footnotes.push((id, text));
+                            result.push(Inline::FootnoteRef(id));
+                            i = cmd_end + 1 + inner.len() + 1;
+                        } else { i = cmd_end; }
+                        continue;
+                    }
+                    "href" => {
+                        // \href{url}{text} — emits Inline::Hyperlink.
+                        flush!();
+                        let rest: String = ch[cmd_end..].iter().collect();
+                        if let Some((url, after)) = take_braced(&rest, 0) {
+                            let after_str: String = ch[cmd_end + 1 + url.len() + 1..].iter().collect();
+                            if let Some((label, _)) = take_braced(&after_str, 0) {
+                                let url_len = url.len();
+                                let label_len = label.len();
+                                result.push(Inline::Hyperlink {
+                                    url,
+                                    label: parse_inline(&label, footnotes),
+                                });
+                                // Advance past both braced args.
+                                let total = 1 + url_len + 1 + 1 + label_len + 1;
+                                i = cmd_end + total;
+                            } else {
+                                let url_len = url.len();
+                                i = cmd_end + 1 + url_len + 1 + after;
+                            }
+                        } else { i = cmd_end; }
+                        continue;
+                    }
+                    "url" => {
+                        // \url{url} — bare URL rendered as text.
+                        flush!();
+                        let rest: String = ch[cmd_end..].iter().collect();
+                        if let Some((url, _)) = take_braced(&rest, 0) {
+                            let url_len = url.len();
+                            result.push(Inline::Url(url));
+                            i = cmd_end + 1 + url_len + 1;
                         } else { i = cmd_end; }
                         continue;
                     }
@@ -333,7 +392,7 @@ fn collect_env<'a>(env: &str, lines: &[&'a str], start: usize) -> (String, usize
     (body, i)
 }
 
-fn parse_itemize(content: &str) -> Vec<Vec<Inline>> {
+fn parse_itemize(content: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Vec<Inline>> {
     content.split("\\item")
            .skip(1) // first split is before first \item
            .map(|item| {
@@ -342,7 +401,7 @@ fn parse_itemize(content: &str) -> Vec<Vec<Inline>> {
                let text = if text.starts_with('[') {
                    if let Some(end) = text.find(']') { &text[end+1..] } else { text }
                } else { text };
-               parse_inline(text.trim())
+               parse_inline(text.trim(), footnotes)
            })
            .filter(|v| !v.is_empty())
            .collect()
@@ -369,16 +428,16 @@ fn parse_tabular(content: &str) -> Vec<Vec<String>> {
     rows
 }
 
-fn flush_para(buf: &mut Vec<String>, blocks: &mut Vec<Block>) {
+fn flush_para(buf: &mut Vec<String>, blocks: &mut Vec<Block>, footnotes: &mut Vec<(usize, Vec<Inline>)>) {
     let text: String = buf.join(" ");
     let text = text.trim().to_string();
     if !text.is_empty() {
-        blocks.push(Block::Para(parse_inline(&text)));
+        blocks.push(Block::Para(parse_inline(&text, footnotes)));
     }
     buf.clear();
 }
 
-fn parse_body(body: &str) -> Vec<Block> {
+fn parse_body(body: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     let lines: Vec<&str> = body.lines().collect();
     let mut i = 0;
@@ -389,7 +448,7 @@ fn parse_body(body: &str) -> Vec<Block> {
         let trimmed = line.trim();
 
         if trimmed.is_empty() {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             i += 1;
             continue;
         }
@@ -397,32 +456,32 @@ fn parse_body(body: &str) -> Vec<Block> {
         if is_preamble(trimmed) { i += 1; continue; }
 
         if trimmed.starts_with("\\maketitle") {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             blocks.push(Block::MakeTitle);
             i += 1; continue;
         }
 
         if trimmed.starts_with("\\hrule") || trimmed.starts_with("\\noindent\\hrule") {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             blocks.push(Block::HRule);
             i += 1; continue;
         }
 
         if trimmed.starts_with("\\newpage") || trimmed.starts_with("\\clearpage") {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             blocks.push(Block::HRule);
             i += 1; continue;
         }
 
         if let Some(sec) = parse_section(trimmed) {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             blocks.push(sec);
             i += 1; continue;
         }
 
         // \begin{env}
         if let Some(env) = parse_env_begin(trimmed) {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             // Check if end is on same line
             let rest = &trimmed[trimmed.find('}').map(|p| p+1).unwrap_or(trimmed.len())..];
             let same_line_content = rest.trim();
@@ -452,13 +511,13 @@ fn parse_body(body: &str) -> Vec<Block> {
                 }
                 "itemize" | "compactitem" => {
                     let (body, next) = collect_env(&env, &lines, i);
-                    let items = parse_itemize(&body);
+                    let items = parse_itemize(&body, footnotes);
                     blocks.push(Block::List { ordered: false, items });
                     i = next;
                 }
                 "enumerate" | "compactenum" => {
                     let (body, next) = collect_env(&env, &lines, i);
-                    let items = parse_itemize(&body);
+                    let items = parse_itemize(&body, footnotes);
                     blocks.push(Block::List { ordered: true, items });
                     i = next;
                 }
@@ -476,7 +535,7 @@ fn parse_body(body: &str) -> Vec<Block> {
                 }
                 "abstract" => {
                     let (body, next) = collect_env(&env, &lines, i);
-                    blocks.push(Block::Para(parse_inline(body.trim())));
+                    blocks.push(Block::Para(parse_inline(body.trim(), footnotes)));
                     i = next;
                 }
                 "figure" | "table" | "wrapfigure" => {
@@ -494,9 +553,18 @@ fn parse_body(body: &str) -> Vec<Block> {
             continue;
         }
 
+        // \caption{...} — block-level caption above/below a figure/table
+        if trimmed.starts_with("\\caption{") {
+            flush_para(&mut para_buf, &mut blocks, footnotes);
+            if let Some((inner, _)) = take_braced(trimmed, "\\caption".len()) {
+                blocks.push(Block::Caption(parse_inline(&inner, footnotes)));
+            }
+            i += 1; continue;
+        }
+
         // \[ display math \]
         if trimmed.starts_with("\\[") {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             let mut math = trimmed[2..].to_string();
             if let Some(end) = math.find("\\]") {
                 math.truncate(end);
@@ -523,7 +591,7 @@ fn parse_body(body: &str) -> Vec<Block> {
 
         // $$ display $$
         if trimmed.starts_with("$$") {
-            flush_para(&mut para_buf, &mut blocks);
+            flush_para(&mut para_buf, &mut blocks, footnotes);
             let rest = &trimmed[2..];
             if let Some(end) = rest.find("$$") {
                 blocks.push(Block::DisplayMath(rest[..end].trim().to_string()));
@@ -552,7 +620,7 @@ fn parse_body(body: &str) -> Vec<Block> {
         i += 1;
     }
 
-    flush_para(&mut para_buf, &mut blocks);
+    flush_para(&mut para_buf, &mut blocks, footnotes);
     blocks
 }
 
@@ -578,6 +646,55 @@ impl Document {
             } else { &src }
         };
 
-        Document { title, author, date, blocks: parse_body(body) }
+        let mut footnotes: Vec<(usize, Vec<Inline>)> = Vec::new();
+        let blocks = parse_body(body, &mut footnotes);
+        Document { title, author, date, blocks, footnotes }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_only(src: &str) -> (Vec<Block>, Vec<(usize, Vec<Inline>)>) {
+        let mut footnotes: Vec<(usize, Vec<Inline>)> = Vec::new();
+        let blocks = parse_body(src, &mut footnotes);
+        (blocks, footnotes)
+    }
+
+    #[test]
+    fn caption_is_block() {
+        let (blocks, _) = parse_only(r"\caption{Hello world}");
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(blocks[0], Block::Caption(_)));
+    }
+
+    #[test]
+    fn href_yields_hyperlink_inline() {
+        let mut footnotes: Vec<(usize, Vec<Inline>)> = Vec::new();
+        let inlines = parse_inline(r"\href{https://example.org}{click me}", &mut footnotes);
+        assert!(matches!(inlines[0], Inline::Hyperlink { ref url, .. } if url == "https://example.org"));
+    }
+
+    #[test]
+    fn url_yields_bare_url_inline() {
+        let mut footnotes: Vec<(usize, Vec<Inline>)> = Vec::new();
+        let inlines = parse_inline(r"\url{https://example.org}", &mut footnotes);
+        assert!(matches!(inlines[0], Inline::Url(ref u) if u == "https://example.org"));
+    }
+
+    #[test]
+    fn footnote_registers_body_and_emits_ref() {
+        let (blocks, footnotes) = parse_only(r"This is a test\footnote{with a body}.");
+        assert_eq!(footnotes.len(), 1);
+        assert_eq!(footnotes[0].0, 1);
+        // The body block should contain a FootnoteRef pointing at id 1.
+        match &blocks[0] {
+            Block::Para(inlines) => {
+                let has_ref = inlines.iter().any(|n| matches!(n, Inline::FootnoteRef(1)));
+                assert!(has_ref, "expected a FootnoteRef(1) in: {inlines:?}");
+            }
+            _ => panic!("expected a paragraph"),
+        }
     }
 }
