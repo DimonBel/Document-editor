@@ -54,6 +54,10 @@ jobs:
 
     steps:
        - name: EthicalCheck  Free & Automated API Security Testing Service
+         # continue-on-error: the action `apisec-inc/ethicalcheck-action`
+         # may not be resolvable (the repo or ref may be removed/renamed).
+         # Don't block PRs on this external dependency.
+         continue-on-error: true
          uses: apisec-inc/ethicalcheck-action@005fac321dd843682b1af6b72f30caaf9952c641
          with:
           # The OpenAPI Specification URL or Swagger Path or Public Postman collection URL.
@@ -63,6 +67,8 @@ jobs:
           sarif-result-file: "ethicalcheck-results.sarif"
 
        - name: Upload sarif file to repository
+         if: always()
+         continue-on-error: true
          uses: github/codeql-action/upload-sarif@v3
          with:
           sarif_file: ./ethicalcheck-results.sarif
