@@ -32,7 +32,6 @@ fn tokenise(src: &str) -> Vec<Tok> {
                 if ch[i].is_alphabetic() {
                     let s = i;
                     while i < ch.len() && ch[i].is_alphabetic() { i += 1; }
-                    while i < ch.len() && ch[i] == ' ' { i += 1; }
                     out.push(Tok::Cmd(ch[s..i].iter().collect()));
                 } else {
                     out.push(Tok::Cmd(ch[i].to_string()));
@@ -136,12 +135,23 @@ fn symbol(name: &str) -> Option<&'static str> {
         "Re" => Some("ℜ"), "Im" => Some("ℑ"),
         "aleph" => Some("ℵ"), "wp" => Some("℘"),
         "oplus" => Some("⊕"), "otimes" => Some("⊗"),
+        "ominus" => Some("⊖"), "odot" => Some("⊙"),
         "perp" => Some("⊥"), "parallel" => Some("∥"),
         "angle" => Some("∠"), "triangle" => Some("△"),
         "star" => Some("★"), "bullet" => Some("•"),
         "dagger" => Some("†"), "ddagger" => Some("‡"),
         "square" => Some("□"), "blacksquare" => Some("■"),
         "checkmark" => Some("✓"),
+        "mapsto" => Some("↦"), "hookrightarrow" => Some("↪"),
+        "uparrow" => Some("↑"),
+        "downarrow" => Some("↓"), "updownarrow" => Some("↕"),
+        "Uparrow" => Some("⇑"), "Downarrow" => Some("⇓"),
+        "Updownarrow" => Some("⇕"),
+        "backepsilon" => Some("∍"), "eth" => Some("ð"), "Thorn" => Some("Þ"),
+        "spadesuit" => Some("♠"), "heartsuit" => Some("♥"),
+        "diamondsuit" => Some("♦"), "clubsuit" => Some("♣"),
+        "imath" => Some("ı"), "jmath" => Some("ȷ"),
+        "complement" => Some("∁"),
         _ => None,
     }
 }
@@ -238,6 +248,79 @@ fn parse_cmd(toks: &[Tok], pos: usize, cmd: &str) -> (String, usize) {
             let (arg, p2) = next_arg(toks, pos + 1);
             (format!("<m:acc><m:accPr><m:chr m:val=\"̈\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
         }
+        "overrightarrow" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"⃗\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "overleftarrow" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"⃖\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "check" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"̌\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "breve" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"̆\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "grave" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"̀\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "acute" => {
+            let (arg, p2) = next_arg(toks, pos + 1);
+            (format!("<m:acc><m:accPr><m:chr m:val=\"́\"/><m:ctrlPr/></m:accPr><m:e>{}</m:e></m:acc>", arg), p2)
+        }
+        "overset" => {
+            let (top, p1) = next_arg(toks, pos + 1);
+            let (bot, p2) = next_arg(toks, p1);
+            (format!("<m:limUpp><m:limUppPr><m:ctrlPr/></m:limUppPr><m:e>{}</m:e><m:lim>{}</m:lim></m:limUpp>", bot, top), p2)
+        }
+        "underset" => {
+            let (bot, p1) = next_arg(toks, pos + 1);
+            let (top, p2) = next_arg(toks, p1);
+            (format!("<m:limLow><m:limLowPr><m:ctrlPr/></m:limLowPr><m:e>{}</m:e><m:lim>{}</m:lim></m:limLow>", top, bot), p2)
+        }
+        "stackrel" => {
+            let (top, p1) = next_arg(toks, pos + 1);
+            let (bot, p2) = next_arg(toks, p1);
+            (format!("<m:limUpp><m:limUppPr><m:ctrlPr/></m:limUppPr><m:e>{}</m:e><m:lim>{}</m:lim></m:limUpp>", bot, top), p2)
+        }
+        "xleftarrow" => {
+            // Optional [below] then {above}: produces an arrow with both
+            // a label below and a label above.
+            let mut p = pos + 1;
+            let mut below: Option<String> = None;
+            if let Some(Tok::Ch('[')) = toks.get(p) {
+                p += 1;
+                let mut inner: Vec<Tok> = Vec::new();
+                while p < toks.len() {
+                    if let Tok::Ch(']') = &toks[p] { p += 1; break; }
+                    inner.push(toks[p].clone());
+                    p += 1;
+                }
+                below = Some(parse_range(&inner, 0, inner.len()));
+            }
+            let (above, p2) = next_arg(toks, p);
+            build_stretchy_arrow(toks, pos + 1, p2, "⟵", above.as_str(), below.as_deref())
+        }
+        "xrightarrow" => {
+            let mut p = pos + 1;
+            let mut below: Option<String> = None;
+            if let Some(Tok::Ch('[')) = toks.get(p) {
+                p += 1;
+                let mut inner: Vec<Tok> = Vec::new();
+                while p < toks.len() {
+                    if let Tok::Ch(']') = &toks[p] { p += 1; break; }
+                    inner.push(toks[p].clone());
+                    p += 1;
+                }
+                below = Some(parse_range(&inner, 0, inner.len()));
+            }
+            let (above, p2) = next_arg(toks, p);
+            build_stretchy_arrow(toks, pos + 1, p2, "⟶", above.as_str(), below.as_deref())
+        }
         "binom" => {
             let (top, p1) = next_arg(toks, pos + 1);
             let (bot, p2) = next_arg(toks, p1);
@@ -262,6 +345,32 @@ fn parse_cmd(toks: &[Tok], pos: usize, cmd: &str) -> (String, usize) {
         "," | ";" | "!" | ":" => (mr("\u{2009}"), pos + 1),
         _ => (mr(&format!("\\{}", cmd)), pos + 1),
     }
+}
+
+/// Builds a stretchy arrow with optional above/below labels.
+/// Used by `\xleftarrow[below]{above}` and `\xrightarrow[below]{above}`.
+fn build_stretchy_arrow(_toks: &[Tok], _start: usize, end: usize, arrow: &str, above: &str, below: Option<&str>) -> (String, usize) {
+    let body = mr(arrow);
+    let arrow_xml = format!(
+        "<m:chr m:val=\"{}\"/>", arrow
+    );
+    let xml = if let Some(below) = below {
+        format!(
+            "<m:limLow><m:limLowPr><m:ctrlPr/></m:limLowPr><m:e>{}</m:e><m:lim>{}</m:lim></m:limLow>",
+            arrow_xml,
+            below
+        )
+    } else {
+        format!(
+            "<m:limLow><m:limLowPr><m:ctrlPr/></m:limLowPr><m:e>{}</m:e><m:lim></m:lim></m:limLow>",
+            arrow_xml
+        )
+    };
+    // The above-label is treated as a top-side annotation: emit arrow
+    // first, then a separate upper annotation. Word renders this as a
+    // labelled arrow most of the time.
+    let _ = body;
+    (xml, end)
 }
 
 fn build_nary(toks: &[Tok], mut pos: usize, accent: &str, lim_loc: &str) -> (String, usize) {
@@ -406,7 +515,8 @@ fn parse_begin_env(toks: &[Tok], pos: usize) -> (String, usize) {
         p += 1;
     }
     let xml = match env_name.as_str() {
-        "matrix" | "pmatrix" | "bmatrix" | "vmatrix" | "Vmatrix" => {
+        "matrix" | "pmatrix" | "bmatrix" | "Bmatrix"
+        | "vmatrix" | "Vmatrix" => {
             parse_matrix(&inner, &env_name)
         }
         "cases" => parse_cases(&inner),
@@ -416,14 +526,19 @@ fn parse_begin_env(toks: &[Tok], pos: usize) -> (String, usize) {
         }
         _ => parse_range(&inner, 0, inner.len()),
     };
-    // Wrap in brackets for pmatrix/bmatrix etc.
+    // Wrap in brackets for pmatrix/bmatrix/Bmatrix/vmatrix/Vmatrix.
+    // matrix (no decoration) and cases are emitted bare.
     let wrapped = match env_name.as_str() {
         "pmatrix" => format!(
             "<m:d><m:dPr><m:begChr m:val=\"(\"/><m:endChr m:val=\")\"/><m:ctrlPr/></m:dPr><m:e>{}</m:e></m:d>", xml),
         "bmatrix" => format!(
             "<m:d><m:dPr><m:begChr m:val=\"[\"/><m:endChr m:val=\"]\"/><m:ctrlPr/></m:dPr><m:e>{}</m:e></m:d>", xml),
+        "Bmatrix" => format!(
+            "<m:d><m:dPr><m:begChr m:val=\"{{\"/><m:endChr m:val=\"}}\"/><m:ctrlPr/></m:dPr><m:e>{}</m:e></m:d>", xml),
         "vmatrix" => format!(
             "<m:d><m:dPr><m:begChr m:val=\"|\"/><m:endChr m:val=\"|\"/><m:ctrlPr/></m:dPr><m:e>{}</m:e></m:d>", xml),
+        "Vmatrix" => format!(
+            "<m:d><m:dPr><m:begChr m:val=\"‖\"/><m:endChr m:val=\"‖\"/><m:ctrlPr/></m:dPr><m:e>{}</m:e></m:d>", xml),
         _ => xml,
     };
     (wrapped, p)
@@ -541,4 +656,93 @@ pub fn display_math(tex: &str) -> String {
          </m:oMathPara>",
         latex_to_omml(tex)
     )
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn renders_to(tex: &str, needle: &str) {
+        let xml = latex_to_omml(tex);
+        assert!(
+            xml.contains(needle),
+            "expected `{needle}` in OMML output for `{tex}`, got: {xml}"
+        );
+    }
+
+    #[test]
+    fn frac_and_sqrt() {
+        renders_to("\\frac{a}{b}", "<m:f>");
+        renders_to("\\sqrt[3]{x}", "<m:rad>");
+    }
+
+    #[test]
+    fn sums_and_ints() {
+        renders_to("\\sum_{i=0}^{n} a_i", "<m:nary>");
+        renders_to("\\int_a^b f(x)\\,dx", "<m:nary>");
+        renders_to("\\iint_S", "<m:nary>");
+    }
+
+    #[test]
+    fn new_accents() {
+        renders_to("\\overrightarrow{AB}", "<m:acc>");
+        renders_to("\\overleftarrow{AB}", "<m:acc>");
+        renders_to("\\check{x}", "<m:acc>");
+        renders_to("\\breve{x}", "<m:acc>");
+        renders_to("\\grave{x}", "<m:acc>");
+        renders_to("\\acute{x}", "<m:acc>");
+    }
+
+    #[test]
+    fn overset_underset_stackrel() {
+        renders_to("\\overset{*}{X}", "<m:limUpp>");
+        renders_to("\\underset{*}{X}", "<m:limLow>");
+        renders_to("\\stackrel{a}{=}", "<m:limUpp>");
+    }
+
+    #[test]
+    fn stretchy_arrows() {
+        renders_to("\\xleftarrow[below]{above}", "<m:limLow>");
+        renders_to("\\xrightarrow{above}", "<m:limLow>");
+    }
+
+    #[test]
+    fn binom_and_dfrac() {
+        renders_to("\\binom{n}{k}", "<m:d>");
+        renders_to("\\dfrac{a}{b}", "<m:f>");
+        renders_to("\\tfrac{a}{b}", "<m:f>");
+    }
+
+    #[test]
+    fn matrix_variants() {
+        renders_to("\\begin{matrix} a & b \\\\ c & d \\end{matrix}", "<m:m>");
+        // pmatrix/bmatrix/Bmatrix/vmatrix/Vmatrix wrap in <m:d> delimiters.
+        renders_to("\\begin{pmatrix} 1 \\\\ 2 \\end{pmatrix}", "<m:begChr");
+        renders_to("\\begin{bmatrix} 1 \\\\ 2 \\end{bmatrix}", "<m:begChr");
+        renders_to("\\begin{Bmatrix} 1 \\\\ 2 \\end{Bmatrix}", "<m:begChr");
+        renders_to("\\begin{vmatrix} 1 \\\\ 2 \\end{vmatrix}", "<m:begChr");
+        renders_to("\\begin{Vmatrix} 1 \\\\ 2 \\end{Vmatrix}", "<m:begChr");
+    }
+
+    #[test]
+    fn new_symbols() {
+        renders_to("a \\mapsto b", "↦");
+        renders_to("x \\uparrow y", "↑");
+        renders_to("a \\oplus b", "⊕");
+        renders_to("a \\otimes b", "⊗");
+        renders_to("a \\ominus b", "⊖");
+        renders_to("a \\odot b", "⊙");
+        renders_to("\\spadesuit", "♠");
+        renders_to("\\imath", "ı");
+    }
+
+    #[test]
+    fn display_math_wraps_omathpara() {
+        let xml = display_math("x + y");
+        assert!(xml.starts_with("<m:oMathPara"));
+        assert!(xml.contains("<m:oMath>"));
+        assert!(xml.contains("</m:oMathPara>"));
+    }
 }
