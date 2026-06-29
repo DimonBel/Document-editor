@@ -345,6 +345,35 @@ fn inner_len(src: &str, pos: usize) -> usize {
 
 // ── block parser ──────────────────────────────────────────────────────────────
 
+/// Returns true if the line looks like a tabular column specification,
+/// e.g. `{|l|c|r|p{3cm}|}`. We use this to filter stray spec lines
+/// out of the body if the spec was placed on its own line inside
+/// `\begin{tabular}{...}`.
+fn looks_like_column_spec(line: &str) -> bool {
+    let t = line.trim();
+    // Use strip_prefix/strip_suffix (not trim_matches) so we don't
+    // accidentally strip the closing `}` from a `p{3cm}` token.
+    let after_open = match t.strip_prefix('{').or_else(|| t.strip_prefix('|')) {
+        Some(s) => s,
+        None => return false,
+    };
+    let before_close = match after_open.strip_suffix('}').or_else(|| after_open.strip_suffix('|')) {
+        Some(s) => s,
+        None => return false,
+    };
+    // A column spec consists of column tokens separated by `|`. Each
+    // token is either a single letter (l/c/r) or `p{...}` / `m{...}`
+    // / `b{...}` / `*{...}` with a width argument.
+    before_close.split('|').all(|tok| {
+        let tok = tok.trim();
+        matches!(tok, "l" | "c" | "r" | "")
+            || (tok.starts_with("p{") && tok.ends_with('}'))
+            || (tok.starts_with("m{") && tok.ends_with('}'))
+            || (tok.starts_with("b{") && tok.ends_with('}'))
+            || tok.starts_with("*{")
+    })
+}
+
 fn is_preamble(line: &str) -> bool {
     for cmd in &[
         "\\documentclass", "\\usepackage", "\\geometry",
@@ -375,7 +404,10 @@ fn parse_section(line: &str) -> Option<Block> {
 fn parse_env_begin(line: &str) -> Option<String> {
     let line = line.trim();
     if !line.starts_with("\\begin{") { return None; }
-    if let Some((env, _)) = take_braced(line, 7) { Some(env) } else { None }
+    // `take_braced` expects the opening `{` to be at `pos`, so we
+    // want position 6 (one past `\begin`, where `{` lives) — not 7
+    // (which is one past the `{`, inside the env name).
+    if let Some((env, _)) = take_braced(line, 6) { Some(env) } else { None }
 }
 
 fn collect_env<'a>(env: &str, lines: &[&'a str], start: usize) -> (String, usize) {
@@ -390,6 +422,27 @@ fn collect_env<'a>(env: &str, lines: &[&'a str], start: usize) -> (String, usize
         i += 1;
     }
     (body, i)
+}
+
+/// Like `collect_env` but also handles the single-line case
+/// `\begin{env}body\end{env}`. If the `\begin` line also contains the
+/// closing `\end`, the body is extracted from that line and the
+/// returned `next` line index points at the line after the `\begin`
+/// line (so the caller doesn't re-scan it).
+fn collect_env_or_inline(env: &str, begin_line: &str, lines: &[&str], start: usize) -> (String, usize) {
+    let end_tag = format!("\\end{{{}}}", env);
+    // First, look for a same-line end on the \begin line.
+    if let Some(end_pos) = begin_line.find(&end_tag) {
+        // Everything between `\begin{env}` and `\end{env}` on the
+        // same line. The `\begin{env}` prefix is 7 + env.len() chars
+        // (`\` + `begin` + `{` + `env` + `}`).
+        let prefix_len = "\\begin{".len() + env.len() + 1; // +1 for closing `}`
+        let body = begin_line[prefix_len..end_pos].trim().to_string();
+        // Caller advanced past `begin_line` already (i += 1), so
+        // return the line after it.
+        return (body, start + 1);
+    }
+    collect_env(env, lines, start)
 }
 
 fn parse_itemize(content: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Vec<Inline>> {
@@ -411,7 +464,13 @@ fn parse_tabular(content: &str) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     let content = content
         .lines()
-        .filter(|l| !l.trim().starts_with("\\hline") && !l.trim().is_empty())
+        // Drop \hline and empty lines, plus any stray column-spec
+        // tokens that landed in the body (e.g. when the spec was
+        // placed on its own line).
+        .filter(|l| {
+            let t = l.trim();
+            !t.starts_with("\\hline") && !t.is_empty() && !looks_like_column_spec(t)
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -528,7 +587,7 @@ fn parse_body(body: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Bloc
                     blocks.push(Block::Table { rows });
                     i = next;
                 }
-                "verbatim" | "lstlisting" | "minted" | "Verbatim" => {
+"verbatim" | "lstlisting" | "minted" | "Verbatim" => {
                     let (body, next) = collect_env(&env, &lines, i);
                     blocks.push(Block::Verbatim(body.trim_end().to_string()));
                     i = next;
@@ -536,6 +595,54 @@ fn parse_body(body: &str, footnotes: &mut Vec<(usize, Vec<Inline>)>) -> Vec<Bloc
                 "abstract" => {
                     let (body, next) = collect_env(&env, &lines, i);
                     blocks.push(Block::Para(parse_inline(body.trim(), footnotes)));
+                    i = next;
+                }
+                "theorem" | "lemma" | "definition" | "proposition"
+                | "corollary" | "conjecture" | "claim" | "fact" => {
+                    // Render the environment as a paragraph whose first
+                    // run is a bold, italic "Theorem." / "Lemma." /
+                    // etc. label. The exact label capitalisation
+                    // matches amsmath's default style.
+                    let (body, next) = collect_env_or_inline(&env, trimmed, &lines, i);
+                    let label = match env.as_str() {
+                        "theorem"     => "Theorem.",
+                        "lemma"       => "Lemma.",
+                        "definition"  => "Definition.",
+                        "proposition" => "Proposition.",
+                        "corollary"   => "Corollary.",
+                        "conjecture"  => "Conjecture.",
+                        "claim"       => "Claim.",
+                        "fact"        => "Fact.",
+                        _ => unreachable!(),
+                    };
+                    let body = body.trim();
+                    let inlines = if body.is_empty() {
+                        vec![Inline::Text(label.to_string())]
+                    } else {
+                        let mut out = Vec::new();
+                        out.push(Inline::Bold(vec![Inline::Italic(vec![
+                            Inline::Text(label.to_string()),
+                        ])]));
+                        out.push(Inline::Text(" ".to_string()));
+                        out.extend(parse_inline(body, footnotes));
+                        out
+                    };
+                    blocks.push(Block::Para(inlines));
+                    i = next;
+                }
+                "proof" => {
+                    // Render as italic body followed by an "□"
+                    // (QED) marker. Matches amsmath's \qedhere when
+                    // the proof ends on its own line.
+                    let (body, next) = collect_env_or_inline(&env, trimmed, &lines, i);
+                    let body = body.trim();
+                    let mut inlines = Vec::new();
+                    if !body.is_empty() {
+                        inlines.push(Inline::Italic(parse_inline(body, footnotes)));
+                        inlines.push(Inline::Text(" ".to_string()));
+                    }
+                    inlines.push(Inline::Text("\u{25A1}".to_string())); // □
+                    blocks.push(Block::Para(inlines));
                     i = next;
                 }
                 "figure" | "table" | "wrapfigure" => {
@@ -662,6 +769,25 @@ mod tests {
         (blocks, footnotes)
     }
 
+    /// Recursively walks an inline list looking for a Text node that
+    /// contains the needle.
+    fn has_text(block: &Block, needle: &str) -> bool {
+        match block {
+            Block::Para(inlines) => inlines.iter().any(|n| text_contains(n, needle)),
+            _ => false,
+        }
+    }
+
+    fn text_contains(n: &Inline, needle: &str) -> bool {
+        match n {
+            Inline::Text(t) => t.contains(needle),
+            Inline::Bold(c) | Inline::Italic(c) | Inline::Underline(c) => {
+                c.iter().any(|x| text_contains(x, needle))
+            }
+            _ => false,
+        }
+    }
+
     #[test]
     fn caption_is_block() {
         let (blocks, _) = parse_only(r"\caption{Hello world}");
@@ -696,5 +822,96 @@ mod tests {
             }
             _ => panic!("expected a paragraph"),
         }
+    }
+
+    #[test]
+    fn theorem_env_emits_bold_italic_label() {
+        let (blocks, _) = parse_only(
+            r"\begin{theorem}Every prime > 2 is odd.\end{theorem}",
+        );
+        assert_eq!(blocks.len(), 1);
+        let b = &blocks[0];
+        match b {
+            Block::Para(inlines) => {
+                // First run should be a Bold containing an Italic
+                // "Theorem." label.
+                match &inlines[0] {
+                    Inline::Bold(children) => match &children[0] {
+                        Inline::Italic(grandchildren) => match &grandchildren[0] {
+                            Inline::Text(t) => assert_eq!(t, "Theorem."),
+                            _ => panic!("expected Text label"),
+                        },
+                        _ => panic!("expected Italic inside Bold"),
+                    },
+                    _ => panic!("expected Bold label, got {:?}", inlines[0]),
+                }
+                assert!(has_text(b, "Every prime > 2 is odd."));
+            }
+            _ => panic!("expected a paragraph"),
+        }
+    }
+
+    #[test]
+    fn other_theorem_envs_use_their_labels() {
+        let cases = [
+            ("lemma",      "Lemma."),
+            ("definition", "Definition."),
+            ("proposition","Proposition."),
+            ("corollary",  "Corollary."),
+            ("conjecture", "Conjecture."),
+            ("claim",      "Claim."),
+            ("fact",       "Fact."),
+        ];
+        for (env, label) in cases {
+            let src = format!(r"\begin{{{env}}}Body.\end{{{env}}}", env = env);
+            let mut footnotes: Vec<(usize, Vec<Inline>)> = Vec::new();
+            let blocks = parse_body(&src, &mut footnotes);
+            assert_eq!(blocks.len(), 1, "{env}: expected one block");
+            assert!(has_text(&blocks[0], label), "{env}: missing label {label:?}");
+            assert!(has_text(&blocks[0], "Body."), "{env}: missing body");
+        }
+    }
+
+    #[test]
+    fn proof_env_emits_qed_marker() {
+        let (blocks, _) = parse_only(
+            r"\begin{proof}Trivial.\end{proof}",
+        );
+        assert_eq!(blocks.len(), 1);
+        assert!(has_text(&blocks[0], "\u{25A1}"), "missing QED marker");
+        // The body should be wrapped in Italic.
+        match &blocks[0] {
+            Block::Para(inlines) => {
+                let has_italic = inlines.iter().any(|n| matches!(n, Inline::Italic(_)));
+                assert!(has_italic, "expected italic body");
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn looks_like_column_spec_recognises_variants() {
+        assert!(looks_like_column_spec("|l|c|r|"));
+        assert!(looks_like_column_spec("{|l|c|r|p{3cm}|}"));
+        assert!(looks_like_column_spec("{|p{3cm}|}"));
+        assert!(looks_like_column_spec("{|*{1}|l|}"));
+        assert!(!looks_like_column_spec("hello world"));
+        assert!(!looks_like_column_spec("|l|c")); // missing closing |
+        assert!(!looks_like_column_spec("a | b"));
+    }
+
+    #[test]
+    fn parse_tabular_drops_spec_line() {
+        let rows = parse_tabular(
+            r"
+                |l|c|r|
+                \hline
+                a & b & c \\
+                d & e & f \\
+            ",
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], vec!["a", "b", "c"]);
+        assert_eq!(rows[1], vec!["d", "e", "f"]);
     }
 }
