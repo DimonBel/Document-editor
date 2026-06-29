@@ -13,6 +13,7 @@ All workflows below run on `GITHUB_TOKEN` alone — no secrets, no paid API keys
 | `release-drafter.yml`   | Auto-drafts changelog from merged PR labels         | Push master         |
 | `pr-failure-comment.yml`| Posts/updates a PR failure comment on any failed check | workflow_run (auto) |
 | `pr-failure-issue.yml`  | Opens one auto-maintained `ci-failure` issue per outage | workflow_run (auto) |
+| `review-findings.yml`   | Opens a tracker issue whenever a review bot (GHAS, CodeRabbit, Greptile, Qodo) posts a finding on a PR | PR review/comment (auto) |
 | `sonar-community.yml`   | Self-hosted SonarQube Community Build               | **Manual only** (`workflow_dispatch`) |
 
 All auto-run workflows need only `GITHUB_TOKEN`, which GitHub provides automatically. No setup required.
