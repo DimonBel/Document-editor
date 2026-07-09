@@ -170,11 +170,12 @@ services:
     logging: *default-logging
     networks: [ednet]
 
-  # ─────── Python gateway (reverse-proxy + auth) ───────
+  # ─────── Rust gateway (reverse-proxy + auth + WS proxy) ───────
   gateway:
     build:
-      context: ../gateway
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: infra/docker/Dockerfile.rust-service
+      args: { SERVICE: gateway }
     image: ed/gateway:latest
     container_name: ed-gateway
     restart: unless-stopped
@@ -190,6 +191,7 @@ services:
       JWT_AUDIENCE: ed-services
       JWKS_URL: http://gateway:8080/.well-known/jwks.json
       INTERNAL_SERVICE_TOKEN_SECRET: changeme
+      RUST_LOG: info,gateway=debug,tower_http=info
     ports: ["8080:8080"]
     depends_on:
       rabbit:       { condition: service_healthy }
@@ -197,9 +199,9 @@ services:
       doc-service:  { condition: service_healthy }
       latex-service:{ condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8080/health').status_code==200 else 1)"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
-      timeout: 5s
+      timeout: 3s
       retries: 10
     logging: *default-logging
     networks: [ednet]

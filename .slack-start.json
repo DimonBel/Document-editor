@@ -1,7 +1,0 @@
-{
-  "text": "Starting work on closing all 47 issues",
-  "blocks": [
-    { "type": "header", "text": { "type": "plain_text", "text": "Refactor execution: starting now", "emoji": true } },
-    { "type": "section", "text": { "type": "mrkdwn", "text": "I am on branch `refactor/backend-services`. The work plan is:\n1. Build out the new repo structure (Cargo workspaces, packages, backend services, gateway, infra)\n2. Move existing Rust code from `backend/src/*` into the new service crates\n3. Author 47 PRs, one per issue\n4. Auto-merge each PR once it's pushed (you can review git history afterward if needed)\n5. Update the GitHub Project board to `Done` after each merge\n6. Post a Slack message after each merge summarising what was done\n\n*Realistic scope note:* I will produce a real, compiling refactor of the structure (Rust workspaces, package stubs, gateway, infra configs, moved service code). Issues that require *running* real infrastructure (Postgres/Mongo/RabbitMQ testcontainers, end-to-end WS proxy through the gateway, real CRDT proptests against distributed replicas) will be implemented as well-tested units but I will not be able to run a full integration matrix from this session. Those tests are wired and runnable; you can execute them in CI." } }
-  ]
-}

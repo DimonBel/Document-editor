@@ -7,13 +7,14 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 COPY Cargo.toml Cargo.lock ./
 COPY packages packages
 COPY backend backend
+COPY gateway gateway
 RUN cargo build -p ${SERVICE} --release
 
 FROM debian:bookworm-slim
 ARG SERVICE
 ARG INSTALL_TEX
 ENV HOST=0.0.0.0 PORT=8080 SERVICE=${SERVICE}
-RUN apt-get update && apt-get install -y ca-certificates libssl3 \
+RUN apt-get update && apt-get install -y ca-certificates libssl3 wget \
     $([ "$INSTALL_TEX" = "1" ] && echo "texlive-latex-base texlive-fonts-recommended texlive-latex-recommended texlive-science texlive-pictures") \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
