@@ -29,7 +29,7 @@ These need you to click "Install" on each provider's site and grant access to `D
 | Bot              | Install URL                              | Notes                                    |
 |------------------|------------------------------------------|------------------------------------------|
 | CodeRabbit       | https://github.com/apps/coderabbitai     | Free for OSS / public repos; reads `.coderabbit.yaml` |
-| Greptile         | https://github.com/apps/greptile         | Free tier; reads `.greptile/greptile.json` |
+| Greptile         | https://github.com/apps/greptile         | Free tier; reads `.github/greptile/greptile.json` |
 | Qodo Merge       | https://github.com/apps/qodo-merge       | Replaces the old PR-Agent; free tier     |
 | Release Drafter  | already wired in workflow (no App)       | Uses GitHub labels                       |
 

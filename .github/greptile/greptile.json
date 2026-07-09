@@ -8,8 +8,10 @@
     "frontend/dist/**",
     "frontend/node_modules/**",
     "backend/target/**",
+    "gateway/target/**",
     "**/*.lock",
-    "**/*.min.js"
+    "**/*.min.js",
+    "**/target/**"
   ],
   "rules": [
     {
