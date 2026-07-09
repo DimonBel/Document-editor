@@ -2,8 +2,14 @@
 **/target
 **/Cargo.lock.bak
 .idea/ .vscode/
-__pycache__/ .pytest_cache/ .venv/ *.pyc
+
+# env
 .env .env.* !.env.example
-infra/data/ gateway/.cache/
+
+# infra runtime data
+infra/data/
+gateway/.cache/
+
+# working / staging files
 .slack-*.json .m*.json
 .issues/
