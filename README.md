@@ -2,8 +2,9 @@
 
 A real-time collaborative document-editing platform. The legacy app was a
 single Rust binary; the codebase has been refactored into a service-oriented
-architecture with reusable Rust crates, three thin Rust services, a Python
-gateway, and a Docker-first local stack.
+architecture with reusable Rust crates, three thin Rust services, a Rust
+gateway, and a Docker-first local stack. Everything from the SPA to the
+last backing service is Rust.
 
 > **TL;DR** -- `docker compose -f infra/docker-compose.yml up` brings up the
 > whole stack. Frontend on http://localhost:5173, gateway on
@@ -21,7 +22,7 @@ gateway, and a Docker-first local stack.
                                                  │ /api, /ws
                                                  ▼
                                   ┌─────────────────────────────┐
-                                  │  gateway  (Python FastAPI)  │
+                                  │  gateway       (Rust · axum)│
                                   │  auth · reverse-proxy · WS  │
                                   │  rate-limit · idempotency   │
                                   │  correlation · SSE fanout   │
@@ -74,12 +75,13 @@ Document-editor/
 │   ├── room-service/           # whiteboards + WS
 │   ├── doc-service/            # documents + WS (CRDT)
 │   └── latex-service/          # pdflatex + DOCX
-├── gateway/                    # Python FastAPI
-│   ├── app/{routers,adapters,middleware,security}/
-│   └── Dockerfile
+├── gateway/                    # Rust API gateway (axum)
+│   ├── src/{config,error,state,security,auth,proxy,ws,
+│   │       middleware,realtime,health,app}.rs
+│   └── tests/auth.rs
 ├── infra/
 │   ├── docker-compose.yml      # the full local stack
-│   ├── docker/Dockerfile.rust-service
+│   ├── docker/Dockerfile.rust-service  # shared for all Rust services + gateway
 │   └── docker/rabbit/{definitions.json,rabbitmq.conf}
 ├── frontend/                   # Vite + React (unchanged)
 ├── docs/
@@ -171,10 +173,8 @@ DATABASE_URL=postgres://ed:ed@localhost:5432/ed \
 For the **gateway**:
 
 ```bash
-cd gateway
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-uvicorn gateway.app.main:app --reload
+cargo run -p gateway    # builds + runs on :8080 with auto-reload via cargo-watch
+cargo test -p gateway   # 13 unit tests (auth, JWT, status codes, ProblemDetails)
 ```
 
 ---
