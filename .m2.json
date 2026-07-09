@@ -1,0 +1,1 @@
+{"title":"M2 Gateway (Python)","description":"FastAPI gateway MVP - auth issuer, reverse-proxy, WS proxy, rate-limit, idempotency, correlation, RabbitMQ->SSE.","due_on":"2026-09-05T00:00:00Z"}

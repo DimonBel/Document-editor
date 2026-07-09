@@ -1,0 +1,1 @@
+{"title":"M6 E2E parity + cutover","description":"Re-implement existing APIs behind gateway, update frontend vite proxy, cutover docker-compose, archive legacy.","due_on":"2026-11-14T00:00:00Z"}

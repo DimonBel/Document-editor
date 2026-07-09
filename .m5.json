@@ -1,0 +1,1 @@
+{"title":"M5 latex-service","description":"Axum latex-service: move backend/src/latex, async API via RabbitMQ, artefact storage + Mongo metadata, texlive-base in Dockerfile.","due_on":"2026-10-31T00:00:00Z"}

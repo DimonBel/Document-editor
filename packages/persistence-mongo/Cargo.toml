@@ -1,0 +1,14 @@
+[package]
+name = "ed-persistence-mongo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ed-domain = { workspace = true }
+ed-errors = { workspace = true }
+mongodb = { workspace = true }
+bson = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }

@@ -1,0 +1,1 @@
+{"title":"M4 doc-service","description":"Axum doc-service: DocumentManager->Postgres+outbox, wire existing TextDocument CRDT, RabbitMQ events, CRDT property tests.","due_on":"2026-10-17T00:00:00Z"}

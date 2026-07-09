@@ -1,0 +1,27 @@
+[package]
+name = "room-service"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "room-service"
+path = "src/main.rs"
+
+[dependencies]
+ed-domain = { workspace = true }
+ed-contracts = { workspace = true }
+ed-errors = { workspace = true }
+ed-observability = { workspace = true }
+ed-auth = { workspace = true }
+ed-cache = { workspace = true }
+ed-persistence-postgres = { workspace = true }
+ed-persistence-mongo = { workspace = true }
+ed-messaging-rabbitmq = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }

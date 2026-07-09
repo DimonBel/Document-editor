@@ -1,0 +1,11 @@
+[package]
+name = "ed-domain"
+version.workspace = true
+edition.workspace = true
+description = "Pure domain types: entities, value objects, IDs, errors. No broker/db deps."
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

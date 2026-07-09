@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = ["packages/*", "backend/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+
+[workspace.dependencies]
+thiserror = "1"; anyhow = "1"; tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.7", features = ["macros", "ws", "http2"] }
+tower = "0.5"; tower-http = { version = "0.6", features = ["trace", "cors", "request-id", "util"] }
+hyper = "1"; http = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid", "json", "migrate"] }
+mongodb = "3"
+bson = { version = "2", features = ["chrono-0_4", "uuid-1"] }
+deadpool-redis = "0.18"
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio"] }
+lapin = "2.5"
+jsonwebtoken = "9"
+futures = "0.3"
+parking_lot = "0.12"
+once_cell = "1"
+tokio = { version = "1", features = ["full"] }
+proptest = "1"
+testcontainers = "0.20"
+testcontainers-modules = { version = "0.11", features = ["postgres", "mongo", "rabbitmq", "redis"] }
+ed-domain = { path = "packages/domain" }
+ed-contracts = { path = "packages/contracts" }
+ed-errors = { path = "packages/errors" }
+ed-observability = { path = "packages/observability" }
+ed-auth = { path = "packages/auth" }
+ed-cache = { path = "packages/cache" }
+ed-persistence-postgres = { path = "packages/persistence-postgres" }
+ed-persistence-mongo = { path = "packages/persistence-mongo" }
+ed-messaging-rabbitmq = { path = "packages/messaging-rabbitmq" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
