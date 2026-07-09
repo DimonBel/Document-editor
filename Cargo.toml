@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["packages/*", "backend/*"]
+members = ["packages/*", "backend/*", "gateway"]
 
 [workspace.package]
 version = "0.1.0"
@@ -42,6 +42,7 @@ ed-cache = { path = "packages/cache" }
 ed-persistence-postgres = { path = "packages/persistence-postgres" }
 ed-persistence-mongo = { path = "packages/persistence-mongo" }
 ed-messaging-rabbitmq = { path = "packages/messaging-rabbitmq" }
+ed-gateway = { path = "gateway" }
 
 [profile.release]
 opt-level = 3
