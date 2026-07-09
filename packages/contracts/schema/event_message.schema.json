@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventMessage",
+  "type": "object",
+  "required": ["id","occurredAt","serviceName","eventName","topic","correlationId","schemaVersion"],
+  "properties": {
+    "id":            { "type": "string", "format": "uuid" },
+    "occurredAt":    { "type": "string", "format": "date-time" },
+    "serviceName":   { "type": "string" },
+    "moduleId":      { "type": "string" },
+    "eventName":     { "type": "string" },
+    "topic":         { "type": "string" },
+    "correlationId": { "type": "string" },
+    "schemaVersion": { "type": "string" },
+    "data":          {}
+  }
+}

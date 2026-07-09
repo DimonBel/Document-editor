@@ -1,0 +1,21 @@
+{
+  "vhosts": [{ "name": "/" }],
+  "exchanges": [
+    { "name": "ed.events",    "type": "topic", "durable": true, "vhost": "/" },
+    { "name": "ed.events.dlx","type": "topic", "durable": true, "vhost": "/" }
+  ],
+  "queues": [
+    { "name": "ed.room-service",     "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
+    { "name": "ed.doc-service",      "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
+    { "name": "ed.latex-service",    "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
+    { "name": "ed.audit",            "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
+    { "name": "ed.realtime-gateway", "durable": false,"auto_delete": true,  "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } }
+  ],
+  "bindings": [
+    { "source": "ed.events", "destination": "ed.room-service",     "destination_type": "queue", "routing_key": "room.*",     "vhost": "/" },
+    { "source": "ed.events", "destination": "ed.doc-service",      "destination_type": "queue", "routing_key": "document.*", "vhost": "/" },
+    { "source": "ed.events", "destination": "ed.latex-service",    "destination_type": "queue", "routing_key": "latex.*",    "vhost": "/" },
+    { "source": "ed.events", "destination": "ed.audit",            "destination_type": "queue", "routing_key": "#.audit.recorded", "vhost": "/" },
+    { "source": "ed.events", "destination": "ed.realtime-gateway", "destination_type": "queue", "routing_key": "*",         "vhost": "/" }
+  ]
+}

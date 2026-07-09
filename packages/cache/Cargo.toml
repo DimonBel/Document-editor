@@ -1,0 +1,14 @@
+[package]
+name = "ed-cache"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ed-errors = { workspace = true }
+deadpool-redis = { workspace = true }
+redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

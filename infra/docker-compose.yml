@@ -1,0 +1,77 @@
+name: ed
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: ed, POSTGRES_USER: ed, POSTGRES_PASSWORD: ed }
+    ports: ["5432:5432"]
+    volumes: ["pg:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "ed"], interval: "5s", retries: 10 }
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo:/data/db"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: "5s", retries: 10 }
+  rabbit:
+    image: rabbitmq:3.13-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - ./docker/rabbit/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./docker/rabbit/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck: { test: ["CMD", "rabbitmq-diagnostics", "ping"], interval: "10s", retries: 10 }
+  room-service:
+    build: { context: ., dockerfile: infra/docker/Dockerfile.rust-service }
+    args: { SERVICE: room-service }
+    environment:
+      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
+      MONGO_URL: mongodb://mongo:27017/ed
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/ed
+      SERVICE_NAME: room-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_started }
+      redis:    { condition: service_healthy }
+      rabbit:   { condition: service_healthy }
+  doc-service:
+    build: { context: ., dockerfile: infra/docker/Dockerfile.rust-service }
+    args: { SERVICE: doc-service }
+    environment:
+      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
+      MONGO_URL: mongodb://mongo:27017/ed
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/ed
+      SERVICE_NAME: doc-service
+    depends_on: [postgres, redis, rabbit]
+  latex-service:
+    build: { context: ., dockerfile: infra/docker/Dockerfile.rust-service, args: { SERVICE: latex-service, INSTALL_TEX: "1" } }
+    environment:
+      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
+      MONGO_URL: mongodb://mongo:27017/ed
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/ed
+      SERVICE_NAME: latex-service
+      LATEX_ARTEFACTS_DIR: /var/lib/latex
+    volumes: ["latex_artefacts:/var/lib/latex"]
+    depends_on: [postgres, mongo, redis, rabbit]
+  gateway:
+    build: { context: ./gateway, dockerfile: Dockerfile }
+    environment:
+      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
+      MONGO_URL: mongodb://mongo:27017/ed
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/ed
+      JWT_ISSUER: ed-gateway
+      JWT_AUDIENCE: ed-services
+      INTERNAL_SERVICE_TOKEN_SECRET: changeme
+    ports: ["8080:8080"]
+    depends_on:
+      rabbit: { condition: service_healthy }
+  frontend:
+    build: { context: ./frontend }
+    ports: ["5173:80"]
+    depends_on: [gateway]
+volumes:
+  pg: {}; mongo: {}; redis: {}; latex_artefacts: {}
