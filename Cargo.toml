@@ -1,38 +1,88 @@
 [workspace]
 resolver = "2"
-members = ["packages/*", "backend/*", "gateway"]
+members = [
+    "packages/*",
+    "backend/*",
+    "gateway",
+]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
+authors = ["DimonBel"]
+repository = "https://github.com/DimonBel/Document-editor"
 
 [workspace.dependencies]
-thiserror = "1"; anyhow = "1"; tracing = "0.1"
+# Core
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_with = "3"
+
+# Errors / HTTP
+http = "1"
+http-body-util = "0.1"
+
+# Axum / tower / hyper / tokio
 axum = { version = "0.7", features = ["macros", "ws", "http2"] }
-tower = "0.5"; tower-http = { version = "0.6", features = ["trace", "cors", "request-id", "util"] }
-hyper = "1"; http = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "request-id", "util"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-tungstenite = "0.24"
+
+# Databases
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid", "json", "migrate"] }
 mongodb = "3"
 bson = { version = "2", features = ["chrono-0_4", "uuid-1"] }
+
+# Cache / rate limit
 deadpool-redis = "0.18"
 redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio"] }
+
+# Messaging
 lapin = "2.5"
+deadpool-lapin = "0.12"
+
+# Auth / JWT
 jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["pem", "sha2"] }
+sha2 = "0.10"
+rand = "0.8"
+
+# Proxy / WS proxy
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 futures = "0.3"
+futures-util = "0.3"
+async-stream = "0.3"
+pin-project-lite = "0.2"
+url = "2.5"
+
+# Re-exports
 parking_lot = "0.12"
 once_cell = "1"
-tokio = { version = "1", features = ["full"] }
+base64 = "0.22"
+bytes = "1"
+mime = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Test helpers
 proptest = "1"
 testcontainers = "0.20"
 testcontainers-modules = { version = "0.11", features = ["postgres", "mongo", "rabbitmq", "redis"] }
+serde_json = "1"
+
+# Internal packages
 ed-domain = { path = "packages/domain" }
 ed-contracts = { path = "packages/contracts" }
 ed-errors = { path = "packages/errors" }
@@ -42,10 +92,12 @@ ed-cache = { path = "packages/cache" }
 ed-persistence-postgres = { path = "packages/persistence-postgres" }
 ed-persistence-mongo = { path = "packages/persistence-mongo" }
 ed-messaging-rabbitmq = { path = "packages/messaging-rabbitmq" }
-ed-gateway = { path = "gateway" }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[profile.dev]
+debug = 1
