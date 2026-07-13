@@ -71,7 +71,14 @@ window.addEventListener('message', function(e) {
 
 function render(src) {
   try {
-    document.getElementById('out').innerHTML = latexToHtml(src);
+    var raw = latexToHtml(src);
+    // Per issue #150: the iframe loaded by the SPA was granted
+    // `allow-same-origin`, so any HTML / <script> tags a collaborator
+    // manages to inject into the LaTeX source would execute in the
+    // application's origin. The converter below only emits a known
+    // tag/attribute whitelist and strips everything else.
+    var safe = sanitizePreviewHtml(raw);
+    document.getElementById('out').innerHTML = safe;
     renderMathInElement(document.body, {
       delimiters: [
         {left:'$$',right:'$$',display:true},
@@ -90,9 +97,80 @@ function render(src) {
     parent.postMessage({type:'ltx-ok'}, target);
   } catch(e) {
     document.getElementById('out').innerHTML =
-      '<div class="error">'+String(e).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</div>';
+      '<div class="error">'+escHtml(String(e))+'</div>';
     var target = parentOrigin || window.location.origin;
     parent.postMessage({type:'ltx-err',msg:String(e)}, target);
+  }
+}
+
+// Strict HTML sanitiser for the preview iframe. Per issue #150:
+// the iframe has `allow-same-origin`, so XSS here would be a
+// whole-application compromise. We parse with the platform
+// DOMParser, walk the resulting tree, drop everything not on the
+// whitelist, strip event-handler attributes, and replace
+// `javascript:` URLs.
+var ALLOWED_TAGS = {
+  P:true, DIV:true, SPAN:true, BR:true, HR:true,
+  H1:true, H2:true, H3:true, H4:true, H5:true, H6:true,
+  STRONG:true, B:true, EM:true, I:true, U:true,
+  CODE:true, PRE:true, BLOCKQUOTE:true,
+  UL:true, OL:true, LI:true, DL:true, DT:true, DD:true,
+  TABLE:true, THEAD:true, TBODY:true, TR:true, TH:true, TD:true,
+  SUP:true, SUB:true,
+  // Math nodes are produced by the in-iframe KaTeX pass; we pass
+  // them through so KaTeX can hydrate them.
+  SPAN:true
+};
+var ALLOWED_ATTRS = {
+  'class':true, 'style':true, 'title':true, 'id':true,
+  'href':true, 'rel':true, 'target':true,
+  'aria-label':true, 'aria-hidden':true, 'role':true,
+  'colspan':true, 'rowspan':true,
+  // KaTeX-injected attrs -- whitelist the read-only ones we have
+  // seen in the wild.
+  'data-semantic':true
+};
+var URL_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:'];
+function sanitizePreviewHtml(raw) {
+  var doc = new DOMParser().parseFromString('<div id="__root__">'+raw+'</div>', 'text/html');
+  walk(doc.getElementById('__root__'));
+  return doc.getElementById('__root__').innerHTML;
+}
+function walk(node) {
+  // Children-first so we can drop whole subtrees.
+  var children = Array.from(node.childNodes);
+  for (var i = 0; i < children.length; i++) {
+    walk(children[i]);
+    if (children[i].parentNode !== node) continue;  // already removed
+    if (children[i].nodeType === 1) {
+      var el = children[i];
+      var tag = el.tagName.toLowerCase();
+      if (!ALLOWED_TAGS[tag]) {
+        // Unwrap disallowed elements: keep their text content.
+        while (el.firstChild) node.insertBefore(el.firstChild, el);
+        node.removeChild(el);
+        continue;
+      }
+      // Strip event handlers + disallowed attributes.
+      var attrs = Array.from(el.attributes);
+      for (var j = 0; j < attrs.length; j++) {
+        var a = attrs[j];
+        var name = a.name.toLowerCase();
+        if (name.indexOf('on') === 0) { el.removeAttribute(a.name); continue; }
+        if (!ALLOWED_ATTRS[name]) { el.removeAttribute(a.name); continue; }
+        if (name === 'href' || name === 'src') {
+          var v = String(a.value || '').trim().toLowerCase();
+          if (v.indexOf('javascript:') === 0 || v.indexOf('data:') === 0) {
+            el.removeAttribute(a.name); continue;
+          }
+          // Block non-whitelisted schemes (e.g. `vbscript:`, custom).
+          var ok = URL_SCHEMES.some(function(s){ return v.indexOf(s) === 0; });
+          if (!ok && v.indexOf('#') !== 0 && v.indexOf('/') !== 0) {
+            el.removeAttribute(a.name);
+          }
+        }
+      }
+    }
   }
 }
 function latexToHtml(src) {
