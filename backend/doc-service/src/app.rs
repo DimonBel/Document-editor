@@ -1,25 +1,81 @@
-use axum::{routing::{get, post}, Json, Router};
-use serde_json::{json, Value};
+//! `doc-service` -- axum, real vertical slice.
+//!
+//! Per #146: REST CRUD persists to Postgres; WS at
+//! `/api/v1/doc-service/ws/doc/{id}` relays ops to peers and persists
+//! them to the Postgres outbox. Background relay publishes to RabbitMQ.
+
+use axum::{
+    extract::State,
+    routing::{delete, get, post},
+    Json, Router,
+};
+use ed_cache::Cache;
+use ed_messaging_rabbitmq::{IEventBus, OutboxRelayService};
+use sqlx::PgPool;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
+use crate::handlers::{create_document, delete_document, get_document, list_documents};
+use crate::ws::ws_handler;
+use ed_persistence_postgres::{EfOutboxStore, OutboxStore};
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub cache: Cache,
+    pub outbox: Arc<dyn OutboxStore>,
+    pub event_bus: Arc<dyn IEventBus>,
+    pub relay: Arc<OutboxRelayService>,
+}
 
 pub async fn run() -> anyhow::Result<()> {
     let cfg = Config::from_env();
-    let app = Router::new()
-        .route("/healthz", get(healthz))
+    ed_observability::init_tracing("doc-service", true);
+
+    let pool = PgPool::connect(&cfg.database_url).await?;
+    sqlx::migrate!("packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+
+    let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore::new(pool.clone()));
+    let redis = deadpool_redis::Config::from_url(&cfg.redis_url)
+        .create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
+    let cache = Cache::new(redis);
+
+    let event_bus = ed_messaging_rabbitmq::RabbitEventBus::connect(
+        &cfg.rabbitmq_url,
+        ed_messaging_rabbitmq::Topology::default(),
+    )
+    .await?;
+    let event_bus = Arc::new(event_bus) as Arc<dyn IEventBus>;
+    let relay = Arc::new(OutboxRelayService {
+        store: Arc::clone(&outbox),
+        bus: Arc::clone(&event_bus),
+        poll_interval: std::time::Duration::from_millis(500),
+        batch_size: 50,
+        max_attempts: 5,
+        backoff_base_ms: 500,
+        backoff_max_ms: 60_000,
+    });
+    let relay_clone = Arc::clone(&relay);
+    tokio::spawn(async move { relay_clone.run().await; });
+
+    let app = AppState { pool: pool.clone(), cache, outbox: Arc::clone(&outbox), event_bus: Arc::clone(&event_bus), relay: Arc::clone(&relay) };
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { "ok" }))
         .route("/api/documents", get(list_documents).post(create_document))
         .route("/api/documents/{id}", get(get_document).delete(delete_document))
+        .route("/api/v1/doc-service/ws/doc/{id}",
+               get({
+                   let state = app.clone();
+                   move |Path(id), ws| ws_handler(State(state), Path(id), ws)
+               }))
+        .with_state(app.clone())
         .layer(TraceLayer::new_for_http());
+
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(addr = %addr, "doc-service listening");
-    Ok(axum::serve(listener, app).await?)
+    Ok(axum::serve(listener, router).await?)
 }
-
-async fn healthz() -> &'static str { "ok" }
-async fn list_documents() -> Json<Value> { Json(json!([])) }
-async fn create_document() -> Json<Value> { Json(json!({})) }
-async fn get_document() -> Json<Value> { Json(json!({})) }
-async fn delete_document() -> Json<Value> { Json(json!({})) }

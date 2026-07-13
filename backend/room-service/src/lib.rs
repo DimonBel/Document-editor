@@ -1,1 +1,1 @@
-pub mod app; pub mod config; pub mod handlers; pub mod messaging; pub mod repo;
+pub mod app; pub mod config; pub mod handlers; pub mod messaging; pub mod repo; pub mod ws;
