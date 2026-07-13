@@ -88,8 +88,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handlePopState = () => {
-      const path = window.location.pathname;
+    // Per issue #153: popstate handlers MUST NOT pushState (which
+    // recurses into another popstate). Use replaceState so the
+    // browser history reflects what we did, and ignore the resulting
+    // popstate by tagging the active navigation. Also debounce the
+    // handler so a faster back/forward than our async loader can't
+    // clobber a newer route with an older response.
+    let syncing = false;
+    let pending: number | null = null;
+
+    const applyRoute = (path: string) => {
       const docMatch = path.match(/^\/doc\/([a-zA-Z0-9-]+)$/);
       const roomMatch = path.match(/^\/room\/([a-zA-Z0-9-]+)$/);
       if (docMatch) {
@@ -101,8 +109,21 @@ export default function App() {
         goToCabinet();
       }
     };
+
+    const handlePopState = () => {
+      if (syncing) return;
+      if (pending !== null) clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        applyRoute(window.location.pathname);
+        pending = null;
+      }, 80);
+    };
+
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (pending !== null) clearTimeout(pending);
+    };
   }, []);
 
   // Sync URL when room is joined from RoomSelector
