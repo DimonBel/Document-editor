@@ -92,8 +92,13 @@ export function DocEditorPage() {
 
         ws.onmessage = (evt) => {
           if (!isMounted) return;
-          const data = JSON.parse(evt.data);
-          
+          // Per issue #152: validate at runtime before mutating React state.
+          let parsed: any;
+          try { parsed = JSON.parse(evt.data); } catch { return; }
+          if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') return;
+
+          const data = parsed;
+
           switch (data.type) {
             case 'doc_sync':
               isLocalChangeRef.current = true;
