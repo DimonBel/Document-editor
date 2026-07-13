@@ -22,3 +22,5 @@ pub mod middleware;
 pub mod realtime;
 pub mod health;
 pub mod app;
+
+pub use realtime::SubscriberTable;

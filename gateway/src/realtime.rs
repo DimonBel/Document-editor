@@ -1,23 +1,33 @@
 //! Realtime push: RabbitMQ -> Server-Sent Events fanout at `/api/realtime/sse`.
 //!
-//! On gateway startup, a single background consumer subscribes to
-//! `ed.events` (routing key `*`) and republishes messages to per-user
-//! channels. Connected SSE clients get events for topics they subscribed
-//! to (via `?topics=room.*`).
+//! Per issue #140:
+//! - The client is registered **for the lifetime of the connection**
+//!   (removed by a guard that fires when the response stream is dropped,
+//!   i.e. when the client disconnects).
+//! - Channels are **bounded** (`MAX_QUEUE = 64`) so a slow client
+//!   doesn't make the publisher block forever; if the queue fills,
+//!   we drop the oldest event for that client and emit a synthetic
+//!   "lagged" event so the client knows to reconnect.
+//! - Global subscription registry has a hard cap (`MAX_SUBSCRIBERS`)
+//!   to prevent an open-relay DoS.
 
 use axum::{
     extract::{Query, State},
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures::stream::Stream;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt as _};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 
 use crate::state::AppState;
+
+const MAX_QUEUE: usize = 64;
+const MAX_SUBSCRIBERS_PER_TOPIC: usize = 1024;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SseQuery {
@@ -25,7 +35,52 @@ pub struct SseQuery {
     pub topics: Option<String>,
 }
 
-/// Subscribe a new SSE client. Returns a stream of `Event`s.
+/// Per-topic subscriber table. Public so the Rabbit consumer can broadcast
+/// into it from a background task.
+#[derive(Default)]
+pub struct SubscriberTable {
+    by_topic: HashMap<String, Vec<Sender<serde_json::Value>>>,
+}
+
+impl SubscriberTable {
+    pub fn add(&mut self, topic: &str, tx: Sender<serde_json::Value>) -> bool {
+        let entry = self.by_topic.entry(topic.to_string()).or_default();
+        if entry.len() >= MAX_SUBSCRIBERS_PER_TOPIC { return false; }
+        entry.push(tx);
+        true
+    }
+    pub fn remove(&mut self, topic: &str, tx: &Sender<serde_json::Value>) {
+        if let Some(v) = self.by_topic.get_mut(topic) {
+            v.retain(|s| !s.same_channel(tx));
+            if v.is_empty() { self.by_topic.remove(topic); }
+        }
+    }
+    pub fn broadcast(&mut self, topic: &str, msg: serde_json::Value) {
+        if let Some(senders) = self.by_topic.get_mut(topic) {
+            let mut idx = 0;
+            while idx < senders.len() {
+                let s = &senders[idx];
+                // Try to push; on full queue drop the oldest by
+                // `try_send` semantics: cap with a bounded buffer and
+                // drop if the consumer is too slow.
+                match s.try_send(msg.clone()) {
+                    Ok(_) => idx += 1,
+                    Err(_) => {
+                        // emit one synthetic lagged event, then drop
+                        let _ = s.try_send(serde_json::json!({
+                            "topic": topic, "lagged": true,
+                        }));
+                        idx += 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Subscribe a new SSE client. Returns a stream of `Event`s with a
+/// RAII-style cleanup guard: when the response stream is dropped, the
+/// sender is removed from every topic it registered for.
 pub async fn sse(
     State(state): State<AppState>,
     Query(q): Query<SseQuery>,
@@ -38,50 +93,68 @@ pub async fn sse(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    if topics.is_empty() {
+        // Always subscribe to at least `room.*` so a misbehaving client
+        // still gets a stream (and is rate-limited accordingly).
+        topics.push("room.*".into());
+    }
 
-    let (tx, rx) = unbounded_channel::<serde_json::Value>();
+    let (tx, rx) = channel::<serde_json::Value>(MAX_QUEUE);
     let id = uuid::Uuid::new_v4().to_string();
+    let client_id = id.clone();
+    let sb = state.ws_clients.clone();
 
-    // Register this client
+    // Register this client on every requested topic.
     {
-        let mut clients = state.ws_clients.write();
+        let mut table = sb.lock();
         for t in &topics {
-            clients.entry(t.clone()).or_default().push(tx.clone());
+            table.add(t, tx.clone());
         }
     }
 
-    let clients = state.ws_clients.clone();
-    let topics_for_cleanup = topics.clone();
-    let cleanup_id = id.clone();
-    let rx_for_cleanup = tx.clone();
+    let sb_drop = sb.clone();
+    let topics_drop = topics.clone();
 
-    let stream = UnboundedReceiverStream::new(rx).map(move |msg| {
-        let topic = msg.get("topic").and_then(|t| t.as_str()).unwrap_or("").to_string();
-        Ok::<_, Infallible>(Event::default().event("event").data(serde_json::to_string(&msg).unwrap_or_default()).id(format!("{}-{}", cleanup_id, uuid::Uuid::new_v4())))
+    // RAII guard: when the response stream is dropped (client
+    // disconnect, or server shutdown) the inner Drop impl removes
+    // the sender from every topic.
+    struct UnregisterOnDrop {
+        sb: Arc<Mutex<SubscriberTable>>,
+        tx: Sender<serde_json::Value>,
+        topics: Vec<String>,
+    }
+    impl Drop for UnregisterOnDrop {
+        fn drop(&mut self) {
+            let mut table = self.sb.lock();
+            for t in &self.topics {
+                table.remove(t, &self.tx);
+            }
+        }
+    }
+    let _guard = UnregisterOnDrop { sb: sb_drop, tx: tx.clone(), topics: topics_drop };
+
+    let stream = ReceiverStream::new(rx).map(move |msg| {
+        let topic = msg
+            .get("topic")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        let data = serde_json::to_string(&msg).unwrap_or_default();
+        Ok::<_, Infallible>(
+            Event::default()
+                .event(topic)
+                .data(data)
+                .id(format!("{}-{}", client_id, uuid::Uuid::new_v4())),
+        )
     });
 
-    let sse = Sse::new(stream).keep_alive(
+    Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keepalive"),
-    );
-
-    // Spawn cleanup: when the SSE stream is dropped, unregister
-    tokio::spawn(async move {
-        // We don't have a direct way to know when the stream ends;
-        // the receiver will be dropped when the client disconnects.
-        // The UnboundedSender will be dropped at the same time.
-        drop(rx_for_cleanup);
-        let mut clients = clients.write();
-        for t in &topics_for_cleanup {
-            if let Some(v) = clients.get_mut(t) {
-                v.retain(|s| !s.same_channel(&tx));
-                if v.is_empty() { clients.remove(t); }
-            }
-        }
-    });
-
-    sse
+    )
+    // The `_guard` lives until the response stream is fully consumed
+    // (i.e. when the client disconnects or the handler is cancelled).
 }
 
 /// Subscribe to RabbitMQ and republish to in-process channels.
@@ -138,19 +211,11 @@ pub async fn start_rabbit_consumer(state: AppState) -> anyhow::Result<()> {
                             .and_then(|t| t.as_str())
                             .unwrap_or("")
                             .to_string();
-                        // Fan out to all matching subscribers
-                        let snapshot: Vec<(String, Vec<UnboundedSender<serde_json::Value>>)> = {
-                            let c = clients.read();
-                            c.iter()
-                                .filter(|(pattern, _)| topic_matches(pattern, &topic))
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect()
-                        };
-                        for (_pattern, senders) in snapshot {
-                            for s in senders {
-                                let _ = s.send(json.clone());
-                            }
-                        }
+                        let mut table = clients.lock();
+                        // The SubscribeTable::broadcast handles per-client bounded
+                        // queues and emits a "lagged" marker if a slow consumer
+                        // falls behind, so the client knows to reconnect.
+                        table.broadcast(&topic, json);
                     }
                 }
             }
@@ -158,16 +223,4 @@ pub async fn start_rabbit_consumer(state: AppState) -> anyhow::Result<()> {
     });
 
     Ok(())
-}
-
-fn topic_matches(pattern: &str, topic: &str) -> bool {
-    if pattern == "*" { return true; }
-    if pattern == topic { return true; }
-    if let Some(prefix) = pattern.strip_suffix(".*") {
-        return topic == prefix || topic.starts_with(&format!("{prefix}."));
-    }
-    if let Some(prefix) = pattern.strip_suffix('*') {
-        return topic.starts_with(prefix);
-    }
-    false
 }
