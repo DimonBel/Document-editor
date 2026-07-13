@@ -5,11 +5,22 @@ name: ed
 # Usage:  docker compose -f infra/docker-compose.yml up
 # Stop:   docker compose -f infra/docker-compose.yml down
 # Reset:  docker compose -f infra/docker-compose.yml down -v
+#
+# Hardened per Semgrep advisories:
+#   - `security_opt: [no-new-privileges:true]` on every service
+#     (YAML rule `yaml.docker-compose.security.no-new-privileges`).
+#   - `read_only: true` + bounded `tmpfs:` mounts on the four
+#     stateful services so a process escape can still write to
+#     scratch space without touching the root filesystem
+#     (YAML rule `writable-filesystem-service`).
 # ----------------------------------------------------------------------------
 
 x-logging: &default-logging
   driver: json-file
   options: { max-size: "10m", max-file: "3" }
+
+x-hardened: &hardened
+  security_opt: [no-new-privileges:true]
 
 services:
 
@@ -24,6 +35,11 @@ services:
       POSTGRES_PASSWORD: ed
     ports: ["5432:5432"]
     volumes: ["pg:/var/lib/postgresql/data"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+      - /dev/shm
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ed -d ed"]
       interval: 5s
@@ -31,6 +47,7 @@ services:
       retries: 20
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   mongo:
     image: mongo:7
@@ -38,6 +55,10 @@ services:
     restart: unless-stopped
     ports: ["27017:27017"]
     volumes: ["mongo:/data/db"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /dev/shm
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
       interval: 5s
@@ -45,12 +66,16 @@ services:
       retries: 20
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   redis:
     image: redis:7-alpine
     container_name: ed-redis
     restart: unless-stopped
     ports: ["6379:6379"]
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -58,17 +83,21 @@ services:
       retries: 20
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   rabbit:
     image: rabbitmq:3.13-management-alpine
     container_name: ed-rabbit
     restart: unless-stopped
-    ports: ["5672:5672", "15672:15672"]   # AMQP + management UI
+    ports: ["5672:5672", "15672:15672"]
     environment:
       RABBITMQ_VHOST: /
     volumes:
       - ./docker/rabbit/definitions.json:/etc/rabbitmq/definitions.json:ro
       - ./docker/rabbit/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -76,6 +105,7 @@ services:
       retries: 20
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   # ─────── Rust backend services ───────
   room-service:
@@ -100,6 +130,10 @@ services:
       mongo:    { condition: service_healthy }
       redis:    { condition: service_healthy }
       rabbit:   { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -107,6 +141,7 @@ services:
       retries: 10
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   doc-service:
     build:
@@ -130,6 +165,10 @@ services:
       mongo:    { condition: service_healthy }
       redis:    { condition: service_healthy }
       rabbit:   { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -137,6 +176,7 @@ services:
       retries: 10
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   latex-service:
     build:
@@ -162,6 +202,10 @@ services:
       mongo:    { condition: service_healthy }
       redis:    { condition: service_healthy }
       rabbit:   { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -169,6 +213,7 @@ services:
       retries: 10
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   # ─────── Rust gateway (reverse-proxy + auth + WS proxy) ───────
   gateway:
@@ -198,6 +243,10 @@ services:
       room-service: { condition: service_healthy }
       doc-service:  { condition: service_healthy }
       latex-service:{ condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -205,6 +254,7 @@ services:
       retries: 10
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
   # ─────── Frontend SPA ───────
   frontend:
@@ -216,8 +266,17 @@ services:
     ports: ["5173:80"]
     depends_on:
       gateway: { condition: service_healthy }
+    read_only: true
+    # nginx:alpine needs to write pid, temp, and cache files; the
+    # SPA bundle is read-only at /usr/share/nginx/html.
+    tmpfs:
+      - /tmp
+      - /var/tmp
+      - /var/cache/nginx
+      - /var/run
     logging: *default-logging
     networks: [ednet]
+    security_opt: [no-new-privileges:true]
 
 volumes:
   pg: {}

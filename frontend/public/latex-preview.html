@@ -159,13 +159,26 @@ function walk(node) {
         if (name.indexOf('on') === 0) { el.removeAttribute(a.name); continue; }
         if (!ALLOWED_ATTRS[name]) { el.removeAttribute(a.name); continue; }
         if (name === 'href' || name === 'src') {
-          var v = String(a.value || '').trim().toLowerCase();
-          if (v.indexOf('javascript:') === 0 || v.indexOf('data:') === 0) {
-            el.removeAttribute(a.name); continue;
+          var raw = String(a.value || '').trim();
+          // Per issue #64 / CodeQL `incomplete-url-scheme-check`:
+          // index-of checks miss `vbscript:`, `livescript:`, etc.
+          // Use the URL constructor to parse the scheme exactly,
+          // falling back to a strict leading-character check for the
+          // rare cases where `new URL` throws (e.g. relative URLs).
+          var scheme = '';
+          try { scheme = new URL(raw, 'http://x/').protocol.toLowerCase(); } catch (e) {}
+          if (!scheme) {
+            var colon = raw.indexOf(':');
+            if (colon > 0) scheme = raw.slice(0, colon).toLowerCase();
           }
-          // Block non-whitelisted schemes (e.g. `vbscript:`, custom).
-          var ok = URL_SCHEMES.some(function(s){ return v.indexOf(s) === 0; });
-          if (!ok && v.indexOf('#') !== 0 && v.indexOf('/') !== 0) {
+          var blocked = scheme === 'javascript:' || scheme === 'data:' ||
+                        scheme === 'vbscript:'  || scheme === 'livescript:' ||
+                        scheme === 'mocha:'    || scheme.indexOf('data:') === 0;
+          if (blocked) { el.removeAttribute(a.name); continue; }
+          // Resolve relative URLs (`#anchor`, `/abs`) against our
+          // scheme allowlist; everything else is rejected.
+          var ok = URL_SCHEMES.some(function(s){ return scheme === s; });
+          if (!ok && raw.charAt(0) !== '#' && raw.charAt(0) !== '/') {
             el.removeAttribute(a.name);
           }
         }
