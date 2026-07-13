@@ -1,12 +1,12 @@
 //! Shared application state, wired into every handler via `axum::extract::State`.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use deadpool_redis::Pool as RedisPool;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 
 use crate::config::{Config, UpstreamConfig};
+use crate::realtime::SubscriberTable;
 use crate::security::jwt::KeyManager;
 use crate::security::users::{InMemoryUserStore, User, UserStore};
 
@@ -17,7 +17,7 @@ pub struct AppState {
     pub keys: Arc<KeyManager>,
     pub redis: RedisPool,
     pub http: reqwest::Client,
-    pub ws_clients: Arc<RwLock<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>>,
+    pub ws_clients: Arc<Mutex<SubscriberTable>>,
     pub rabbit_channel: Arc<tokio::sync::Mutex<Option<lapin::Channel>>>,
     pub rabbit_url: String,
     pub users: Arc<dyn UserStore>,
@@ -68,7 +68,7 @@ impl AppState {
             keys,
             redis,
             http,
-            ws_clients: Arc::new(RwLock::new(HashMap::new())),
+            ws_clients: Arc::new(Mutex::new(SubscriberTable::default())),
             rabbit_channel: Arc::new(tokio::sync::Mutex::new(None)),
             rabbit_url: cfg.rabbitmq_url.clone(),
             users,
