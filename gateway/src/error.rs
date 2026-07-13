@@ -1,8 +1,18 @@
 //! `AppError` -> RFC-7807 `ProblemDetails` + axum `IntoResponse` integration.
+//!
+//! Per issue #143, internal errors (broker / Redis / reqwest / serde /
+//! JWT-parse / upstream-connect details) MUST NOT leak to callers.
+//! They are split into:
+//! - `Public(..)` variants that include `detail` (validation, not-found,
+//!   bad-request, etc.);
+//! - `Internal(..)` variants that NEVER include the underlying message;
+//!   they emit a generic `Internal server error` and the detail is
+//!   added to the structured logs only.
 
 use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::error;
 
 #[derive(Debug, Clone, Error, Serialize, Deserialize)]
 #[serde(tag = "type", content = "details")]
@@ -19,12 +29,16 @@ pub enum AppError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
-    #[error("upstream error: {0}")]
-    Upstream(String),
-    #[error("broker error: {0}")]
-    Broker(String),
     #[error("rate limited")]
     RateLimited { retry_after_secs: u64 },
+    /// Public-facing upstream error: do NOT leak the underlying URL /
+    /// status / message. Detail is generic ("upstream unavailable").
+    #[error("upstream unavailable")]
+    Upstream(String),
+    /// Public-facing broker error: do NOT leak transport details.
+    #[error("broker unavailable")]
+    Broker(String),
+    /// Internal error: detail is logged, never sent to the client.
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -45,17 +59,18 @@ impl AppError {
         }
     }
     pub fn to_problem(&self, instance: Option<String>) -> ProblemDetails {
-        let (title, kind_suffix) = match self {
-            AppError::NotFound { .. } => ("Not found", Some("not-found")),
-            AppError::BadRequest(_) => ("Bad request", Some("bad-request")),
-            AppError::Unauthorized(_) => ("Unauthorized", Some("unauthorized")),
-            AppError::Forbidden(_) => ("Forbidden", Some("forbidden")),
-            AppError::Validation(_) => ("Validation failed", Some("validation")),
-            AppError::Conflict(_) => ("Conflict", Some("conflict")),
-            AppError::Upstream(_) => ("Upstream error", Some("upstream")),
-            AppError::Broker(_) => ("Broker error", Some("broker")),
-            AppError::RateLimited { .. } => ("Rate limit exceeded", Some("rate-limited")),
-            AppError::Internal(_) => ("Internal server error", Some("internal")),
+        let (title, kind_suffix, detail) = match self {
+            AppError::NotFound { what } => ("Not found", "not-found", Some(what.clone())),
+            AppError::BadRequest(d)    => ("Bad request", "bad-request", Some(d.clone())),
+            AppError::Unauthorized(d)  => ("Unauthorized", "unauthorized", Some(d.clone())),
+            AppError::Forbidden(d)     => ("Forbidden", "forbidden", Some(d.clone())),
+            AppError::Validation(d)    => ("Validation failed", "validation", Some(d.clone())),
+            AppError::Conflict(d)      => ("Conflict", "conflict", Some(d.clone())),
+            AppError::RateLimited { .. } => ("Rate limit exceeded", "rate-limited", Some("too many requests".into())),
+            // Public errors: detail is intentionally generic.
+            AppError::Upstream(_)  => ("Upstream unavailable", "upstream", None),
+            AppError::Broker(_)    => ("Broker unavailable",  "broker", None),
+            AppError::Internal(_)  => ("Internal server error", "internal", None),
         };
         let s = self.status();
         ProblemDetails {
@@ -63,7 +78,7 @@ impl AppError {
                 .unwrap_or_else(|| format!("about:blank#{}", s.as_u16())),
             title: title.to_string(),
             status: s.as_u16(),
-            detail: Some(self.to_string()),
+            detail,
             instance,
         }
     }
@@ -81,6 +96,11 @@ pub struct ProblemDetails {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        // Log the full underlying error for ops; only the sanitised
+        // detail (if any) ever reaches the client.
+        if matches!(self, AppError::Internal(_) | AppError::Upstream(_) | AppError::Broker(_)) {
+            error!(error = %self, "request failed");
+        }
         let status = self.status();
         let problem = self.to_problem(None);
         let mut resp = (status, Json(problem)).into_response();
@@ -98,19 +118,19 @@ impl IntoResponse for AppError {
 }
 
 impl From<lapin::Error> for AppError {
-    fn from(e: lapin::Error) -> Self { AppError::Broker(e.to_string()) }
+    fn from(_e: lapin::Error) -> Self { AppError::Broker("broker connection failed".into()) }
 }
 impl From<reqwest::Error> for AppError {
-    fn from(e: reqwest::Error) -> Self { AppError::Upstream(e.to_string()) }
+    fn from(_e: reqwest::Error) -> Self { AppError::Upstream("upstream connection failed".into()) }
 }
 impl From<serde_json::Error> for AppError {
-    fn from(e: serde_json::Error) -> Self { AppError::Internal(format!("json: {e}")) }
+    fn from(_e: serde_json::Error) -> Self { AppError::Internal("json".into()) }
 }
 impl From<redis::RedisError> for AppError {
-    fn from(e: redis::RedisError) -> Self { AppError::Internal(format!("redis: {e}")) }
+    fn from(_e: redis::RedisError) -> Self { AppError::Internal("redis".into()) }
 }
 impl From<deadpool_redis::PoolError> for AppError {
-    fn from(e: deadpool_redis::PoolError) -> Self { AppError::Internal(format!("redis pool: {e}")) }
+    fn from(_e: deadpool_redis::PoolError) -> Self { AppError::Internal("redis pool".into()) }
 }
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
