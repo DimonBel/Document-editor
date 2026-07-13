@@ -29,6 +29,8 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
+        let dev_mode = env::var("ED_DEV_MODE").is_ok();
+
         let host = env::var("GATEWAY_HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let port: u16 = env::var("GATEWAY_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080);
         let service_name = env::var("SERVICE_NAME").unwrap_or_else(|_| "gateway".into());
@@ -39,7 +41,21 @@ impl Config {
         let jwt_issuer = env::var("JWT_ISSUER").unwrap_or_else(|_| "ed-gateway".into());
         let jwt_audience = env::var("JWT_AUDIENCE").unwrap_or_else(|_| "ed-services".into());
         let jwks_url = env::var("JWKS_URL").unwrap_or_else(|_| "http://gateway:8080/.well-known/jwks.json".into());
-        let internal_service_token_secret = env::var("INTERNAL_SERVICE_TOKEN_SECRET").unwrap_or_else(|_| "changeme".into());
+
+        // Required production secrets: refuse weak defaults unless `ED_DEV_MODE` is set.
+        let internal_service_token_secret = env::var("INTERNAL_SERVICE_TOKEN_SECRET")
+            .unwrap_or_else(|_| {
+                if dev_mode { "dev-only-secret".to_string() }
+                else {
+                    eprintln!("FATAL: INTERNAL_SERVICE_TOKEN_SECRET is not set. Refusing to start with the placeholder.");
+                    std::process::exit(78);
+                }
+            });
+        if !dev_mode && (internal_service_token_secret.len() < 32 || internal_service_token_secret == "changeme") {
+            eprintln!("FATAL: INTERNAL_SERVICE_TOKEN_SECRET is weak (length {}). Refusing to start.", internal_service_token_secret.len());
+            std::process::exit(78);
+        }
+
         let otel_endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_default();
 
         // Default rate-limit: 100 req / 60 sec for /api/v1/*
