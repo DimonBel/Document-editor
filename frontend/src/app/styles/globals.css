@@ -8,12 +8,27 @@
   box-sizing: border-box;
 }
 
+/* Per issue #155: `overflow: hidden` on every root container killed
+ * page-level scrolling. Now we use `min-height` (so the page can grow
+ * beyond the viewport when content needs it) and keep overflow
+ * contained to the *individual* full-screen views (whiteboard,
+ * editor canvas, dialogs) which set their own `overflow` rather
+ * than blocking the whole document.
+ *
+ * Also: the `width: 100vw`/`height: 100vh` was preventing layout
+ * from flowing on small viewports -- 100dvh is the dynamic-viewport
+ * cousin that shrinks when the mobile URL bar appears. */
 html,
-body,
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 #root {
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 body {

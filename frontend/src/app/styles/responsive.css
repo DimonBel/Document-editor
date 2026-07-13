@@ -1,0 +1,74 @@
+/* Per issue #155: a small set of responsive breakpoints + utility
+ * classes for the main layout surfaces. We don't touch the per-page
+ * component CSS (DocEditorPage.css, WhiteboardPage.css) here --
+ * those pages carry their own responsive rules and #155 tracks that
+ * work separately. This file exists so the *layout primitives*
+ * the rest of the app relies on are responsive by default.
+ *
+ * Breakpoints (mobile-first):
+ *   sm  >= 640px   -- phone landscape / large phone portrait
+ *   md  >= 768px   -- tablet portrait
+ *   lg  >= 1024px  -- laptop / tablet landscape
+ *   xl  >= 1280px  -- desktop
+ */
+
+@layer utilities {
+  .ed-stack-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  @media (min-width: 768px) {
+    .ed-stack-mobile { flex-direction: row; gap: 1.5rem; }
+  }
+
+  .ed-scroll-container {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Allow flex children to actually shrink below content size. */
+    min-height: 0;
+  }
+
+  .ed-touch-target {
+    /* 44x44 -- WCAG 2.5.5 minimum target size. */
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Per #155 + #156: any element with a role=button, role=link, or
+ * role=tab that has collapsed to < 44px in the current layout
+ * gets a minimum tap target without the stylesheet author having
+ * to remember the exact rule. */
+@layer a11y {
+  [role="button"]:not([data-size="compact"]),
+  button:not([data-size="compact"]),
+  a.ed-link {
+    min-height: 36px;
+  }
+  @media (pointer: coarse) {
+    [role="button"]:not([data-size="compact"]),
+    button:not([data-size="compact"]),
+    a.ed-link {
+      min-height: 44px;
+    }
+  }
+
+  /* Visually-hidden but screen-reader-accessible, for skip links
+   * and dialog titles. */
+  .ed-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .ed-focus-ring:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 2px;
+  }
+}
