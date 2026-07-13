@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 
 use crate::config::{Config, UpstreamConfig};
 use crate::security::jwt::KeyManager;
+use crate::security::users::{InMemoryUserStore, User, UserStore};
 
 /// Process-wide state. Cheap to clone (everything inside is `Arc`).
 #[derive(Clone)]
@@ -19,6 +20,7 @@ pub struct AppState {
     pub ws_clients: Arc<RwLock<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>>,
     pub rabbit_channel: Arc<tokio::sync::Mutex<Option<lapin::Channel>>>,
     pub rabbit_url: String,
+    pub users: Arc<dyn UserStore>,
 }
 
 impl AppState {
@@ -37,6 +39,30 @@ impl AppState {
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()?;
 
+        // Seed the in-memory user store from env (operator-seeded; production
+        // would use a `users` Postgres table behind the same `UserStore` trait).
+        let users = Arc::new(InMemoryUserStore::new());
+        if let (Some(username), Some(hash_or_plain)) = (
+            std::env::var("SEED_USERNAME").ok(),
+            std::env::var("SEED_PASSWORD_HASH").ok().or_else(|| std::env::var("SEED_PASSWORD").ok()),
+        ) {
+            let id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, username.as_bytes()).to_string();
+            let password_hash = std::env::var("SEED_PASSWORD_HASH").ok()
+                .unwrap_or_else(|| crate::security::users::hash_password(&hash_or_plain).unwrap_or_default());
+            users.insert(User {
+                id,
+                username: username.clone(),
+                email: None,
+                roles: vec!["user".into()],
+                scopes: vec![
+                    "rooms:read".into(), "rooms:write".into(),
+                    "documents:read".into(), "documents:write".into(),
+                ],
+                password_hash,
+            });
+            tracing::info!(%username, "seeded user");
+        }
+
         Ok(Self {
             config: cfg,
             keys,
@@ -45,6 +71,7 @@ impl AppState {
             ws_clients: Arc::new(RwLock::new(HashMap::new())),
             rabbit_channel: Arc::new(tokio::sync::Mutex::new(None)),
             rabbit_url: cfg.rabbitmq_url.clone(),
+            users,
         })
     }
 
