@@ -1,9 +1,15 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { Card, Typography, message } from 'antd';
 import { FormOutlined, FileTextOutlined } from '@ant-design/icons';
-import { WhiteboardPage } from './pages/WhiteboardPage';
-import { DocEditorPage } from './pages/DocEditorPage';
-import { LaTeXEditorPage } from './pages/LaTeXEditorPage';
+// Per #157: the heavy editor + whiteboard + LaTeX pages are each
+// split into their own chunk via `React.lazy`. The home view, the
+// cabinet selectors, and the API clients remain in the initial
+// bundle, so a visitor who only opens the home page pays for
+// neither react-konva (whiteboard), CodeMirror (LaTeX) nor TipTap
+// (doc editor).
+const WhiteboardPage = lazy(() => import('./pages/WhiteboardPage'));
+const DocEditorPage = lazy(() => import('./pages/DocEditorPage'));
+const LaTeXEditorPage = lazy(() => import('./pages/LaTeXEditorPage'));
 import { DocSelector } from './features/doc/DocSelector';
 import { RoomSelector } from './features/room/RoomSelector';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
@@ -13,6 +19,24 @@ import { docsApi } from './core/api/docsApi';
 import { roomsApi } from './core/api/roomsApi';
 
 const { Title, Text } = Typography;
+
+/** Inline placeholder rendered while a lazy chunk loads. */
+const EditorFallback = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '60vh',
+      color: 'var(--color-neutral-500, #888)',
+      fontSize: 14,
+    }}
+  >
+    Loading editor...
+  </div>
+);
 
 type AppMode = 'home' | 'room' | 'doc-cabinet' | 'doc' | 'latex';
 
@@ -155,11 +179,21 @@ export default function App() {
         />
       )}
       {mode === 'room' && !roomId && <RoomSelectorWrapper onBack={goHome} />}
-      {mode === 'room' && roomId && <WhiteboardPageWrapper onBack={goToRoomLobby} />}
+      {mode === 'room' && roomId && (
+        <Suspense fallback={<EditorFallback />}>
+          <WhiteboardPageWrapper onBack={goToRoomLobby} />
+        </Suspense>
+      )}
       {mode === 'doc-cabinet' && <DocCabinetWrapper onBack={goHome} />}
-      {mode === 'doc' && <DocEditorPageWrapper onBack={goToCabinet} />}
+      {mode === 'doc' && (
+        <Suspense fallback={<EditorFallback />}>
+          <DocEditorPageWrapper onBack={goToCabinet} />
+        </Suspense>
+      )}
       {mode === 'latex' && (
-        <LaTeXEditorPage onBack={() => { setMode('home'); window.history.pushState({}, '', '/'); }} />
+        <Suspense fallback={<EditorFallback />}>
+          <LaTeXEditorPage onBack={() => { setMode('home'); window.history.pushState({}, '', '/'); }} />
+        </Suspense>
       )}
     </ErrorBoundary>
   );
