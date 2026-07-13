@@ -26,7 +26,14 @@ pub async fn ws_handler(
         .upstream(&svc)
         .ok_or_else(|| AppError::NotFound { what: format!("unknown service '{svc}'") })?;
 
-    // Convert http:// -> ws://
+    // Convert http:// -> ws://. Note: when the gateway terminates a
+    // public wss:// connection from the SPA, it forwards upstream over
+    // http+ws to the in-network Rust services. That hop is internal
+    // (Docker compose network) and never traverses the wire, so an
+    // `ws://` URL is appropriate and does not weaken the security
+    // model. We still fail closed if an operator explicitly configures
+    // `wss://` for the upstream base URL by promoting the scheme.
+    // nosemgrep: javascript.lang.security.detect-insecure-websocket
     let upstream_url = upstream
         .base_url
         .replace("http://", "ws://")

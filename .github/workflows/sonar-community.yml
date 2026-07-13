@@ -24,7 +24,10 @@ jobs:
     env:
       SONAR_SCANNER_VERSION: 6.2.1.4610
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to immutable commit SHAs to
+      # match GitHub's `mutable-action-tag` Semgrep rule; the version
+      # tag is included as a trailing comment for human readability.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d110973c6216b3a2 # v4
         with:
           fetch-depth: 0
 
@@ -40,7 +43,7 @@ jobs:
             sleep 5
           done
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0c6 # v4
         with:
           node-version: 20
 
@@ -54,7 +57,7 @@ jobs:
         working-directory: backend
         run: cargo check
 
-      - uses: sonarsource/sonarqube-scan-action@v4
+      - uses: sonarsource/sonarqube-scan-action@9375bb86d2913b56b8e0e4f6b8b9b4d61a728c47 # v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: http://sonarqube:9000
