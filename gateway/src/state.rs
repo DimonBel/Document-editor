@@ -46,7 +46,22 @@ impl AppState {
             std::env::var("SEED_USERNAME").ok(),
             std::env::var("SEED_PASSWORD_HASH").ok().or_else(|| std::env::var("SEED_PASSWORD").ok()),
         ) {
-            let id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, username.as_bytes()).to_string();
+            // Derive a stable user-id from the seed username (no v5
+            // available in uuid 1.x); use a v4 UUID derived from a
+            // hash instead.
+            let id = {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(b"ed-gateway-seed");
+                h.update(username.as_bytes());
+                let digest = h.finalize();
+                let mut bytes = [0u8; 16];
+                bytes.copy_from_slice(&digest[..16]);
+                // Set version (4) and variant (10) bits per RFC 4122.
+                bytes[6] = (bytes[6] & 0x0f) | 0x40;
+                bytes[8] = (bytes[8] & 0x3f) | 0x80;
+                uuid::Uuid::from_bytes(bytes).to_string()
+            };
             let password_hash = std::env::var("SEED_PASSWORD_HASH").ok()
                 .unwrap_or_else(|| crate::security::users::hash_password(&hash_or_plain).unwrap_or_default());
             users.insert(User {

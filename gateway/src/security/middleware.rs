@@ -2,7 +2,7 @@
 //! `CurrentUser` into request extensions for downstream handlers.
 
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::header::AUTHORIZATION,
     middleware::Next,
     response::Response,

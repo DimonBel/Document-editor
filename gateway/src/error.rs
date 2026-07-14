@@ -74,7 +74,8 @@ impl AppError {
         };
         let s = self.status();
         ProblemDetails {
-            kind: kind_suffix.map(|k| format!("https://docs.ed/errors/{k}"))
+            kind: kind_suffix
+                .map(|k| format!("https://docs.ed/errors/{k}"))
                 .unwrap_or_else(|| format!("about:blank#{}", s.as_u16())),
             title: title.to_string(),
             status: s.as_u16(),

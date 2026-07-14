@@ -33,8 +33,29 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/{svc}/{*path}", any(proxy))
         // WebSocket proxy: /ws/{svc}/{path:path}
         .route("/ws/{svc}/{*path}", get(ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+        // The auth + rate-limit middlewares need access to
+        // `JwtVerifier` from `AppState`. The cleanest way to
+        // express that in axum 0.7 is an inline closure that
+        // captures the state and lets axum fill in the request
+        // type; this avoids the generic-type parameter dance
+        // that `from_fn_with_state(auth_middleware, ...)` would
+        // require.
+        .layer(middleware::from_fn(move |req, next| {
+            let st = state.clone();
+            crate::security::middleware::auth_middleware(
+                axum::extract::State(st),
+                req,
+                next,
+            )
+        }))
+        .layer(middleware::from_fn(move |req, next| {
+            let st = state.clone();
+            crate::middleware::rate_limit::rate_limit_middleware(
+                axum::extract::State(st),
+                req,
+                next,
+            )
+        }))
         .layer(middleware::from_fn(idempotency_middleware))
         .layer(middleware::from_fn(correlation_middleware))
         .layer(middleware::from_fn(logging_middleware))

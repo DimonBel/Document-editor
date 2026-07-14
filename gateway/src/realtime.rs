@@ -85,7 +85,7 @@ pub async fn sse(
     State(state): State<AppState>,
     Query(q): Query<SseQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let topics: Vec<String> = q
+    let mut topics: Vec<String> = q
         .topics
         .as_deref()
         .unwrap_or("room.*")

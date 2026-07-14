@@ -56,7 +56,7 @@ pub async fn rate_limit_middleware(
 ) -> Response {
     let path = req.uri().path();
     let method = req.method().clone();
-    let (capacity, refill_per_sec, kind) = match rate_for_path(path, method) {
+    let (capacity, refill_per_sec, kind) = match rate_for_path(path, &method) {
         Some(t) => t,
         None => return next.run(req).await,
     };

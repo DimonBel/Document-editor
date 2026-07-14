@@ -68,7 +68,7 @@ pub async fn idempotency_middleware(
     // different bodies don't replay each other.
     let redis_key_pre = format!("idem:{principal}:{path}:{key}");
     let redis_key = match read_body_for_key(&req).await {
-        Ok(()). {
+        Ok(()) => {
             let body_hash = last_seen_body(&req);
             format!("{redis_key_pre}:{body_hash}")
         }

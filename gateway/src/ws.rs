@@ -75,7 +75,10 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 Message::Text(t) => TMessage::Text(t),
                 Message::Binary(b) => TMessage::Binary(b),
-                Message::Close(c) => TMessage::Close(c),
+                // axum's `Message::Close` carries a different
+                // `CloseFrame` than tungstenite's. Unwrap to
+                // tungstenite's `Option<CloseFrame<'static>>`.
+                Message::Close(c) => TMessage::Close(Some(c.0)),
                 Message::Ping(p) => TMessage::Ping(p),
                 Message::Pong(p) => TMessage::Pong(p),
             };
@@ -88,9 +91,11 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 TMessage::Text(t) => Message::Text(t),
                 TMessage::Binary(b) => Message::Binary(b),
-                TMessage::Close(c) => Message::Close(c),
+                // Convert tungstenite's `Option<CloseFrame<'static>>`
+                // to axum's `Message::Close(Option<CloseFrame<'static>>)`.
+                TMessage::Close(c) => Message::Close(c.map(axum::extract::ws::CloseFrame)),
                 TMessage::Ping(p) => Message::Ping(p),
-                TMessage::Pong(p) => Message::Pong(p),
+                TMessage::Pong(p) => TMessage::Pong(p),
                 _ => continue,
             };
             if client_tx.send(translated).await.is_err() { break; }
