@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 ARG SERVICE
 ARG INSTALL_TEX=""
-FROM rust:1.85-slim AS builder
+FROM rust:1.88-slim AS builder
 # ARGs declared before FROM are NOT automatically available in
 # subsequent stages; re-declare them here so the RUN below can
 # substitute ${SERVICE}.
