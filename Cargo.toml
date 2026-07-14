@@ -1,8 +1,13 @@
 [workspace]
 resolver = "2"
+# We do NOT use `backend/*` because `backend/` also contains
+# `data/`, `.idea/` (when present), etc. that are not Cargo
+# packages. The exact three service folders are listed explicitly.
 members = [
     "packages/*",
-    "backend/*",
+    "backend/room-service",
+    "backend/doc-service",
+    "backend/latex-service",
     "gateway",
 ]
 
