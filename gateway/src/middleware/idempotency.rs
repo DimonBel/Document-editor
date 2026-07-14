@@ -158,10 +158,12 @@ async fn read_body_for_key(req: &Request) -> Result<(), ()> {
     // consuming the whole request (which `into_parts` would do);
     // the headers/extensions remain available to the next
     // middleware in the chain.
-    // `into_body()` consumes `self`, which we can't do through
-    // a `&Request`. Use `parts()` instead -- it does not consume
-    // the body, so we can read the body to completion and still
-    // hand a non-consumed request to the next middleware.
+    // `Request::into_body()` consumes `self`. Since we only have a
+    // shared reference here, clone the request first (the body is
+    // `Bytes`-backed so the clone is cheap) and then extract the
+    // body from the clone. The original request (`req`) is left
+    // untouched so the next middleware downstream sees the full
+    // request including any consumed headers.
     let (parts, body) = req.parts().clone().into_parts();
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;

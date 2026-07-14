@@ -82,14 +82,15 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
                 // one via `CloseFrame::from((code_u16, reason_bytes))`.
                 Message::Close(c) => TMessage::Close(c.map(|cf| {
                     // Construct a tungstenite `CloseFrame` manually.
-                    // `CloseCode` is at the `frame::coding` path
-                    // (re-exported from the public protocol module).
-                    // `reason` is `Cow<'static, [u8]>`; the `as_bytes`
-                    // produces `&[u8]`, which we lift into an owned
-                    // `Vec<u8>` and convert via `Cow::from`.
+                    // `CloseCode` is an enum with `Normal`, `Away`,
+                    // `Protocol`, `IanaRegistered` variants + a
+                    // `Custom(u16)` catch-all -- we map `u16::from
+                    // (cf.code)` into a `CloseCode` via `From`.
                     tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode(u16::from(cf.code)),
-                        reason: std::borrow::Cow::from(cf.reason.as_bytes().to_vec()),
+                        code: tokio_tungstenite::tungstenite::protocol::CloseCode::from(u16::from(cf.code)),
+                        reason: std::borrow::Cow::Owned(
+                            String::from_utf8_lossy(cf.reason.as_bytes()).into_owned()
+                        ),
                     }
                 })),
                 Message::Ping(p) => TMessage::Ping(p),
