@@ -8,10 +8,23 @@ FROM rust:1.81-slim AS builder
 ARG SERVICE
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+# Per the workspace Cargo.toml, packages/*, backend/{room,doc,latex}-
+# service, and gateway/ are all cargo members. Copy the manifests
+# first so the build can resolve the workspace; copy the source last.
 COPY Cargo.toml Cargo.lock* ./
 COPY packages packages
 COPY backend backend
 COPY gateway gateway
+# Always run `cargo generate-lockfile` first. If a Cargo.lock is
+# already in the build context, this is a no-op (just rewrites it
+# with the same content). If not, it produces a lockfile that
+# resolves all transitive deps to versions whose manifests Cargo can
+# actually parse. Without this, `cargo build` picks latest crates
+# from crates.io and occasionally hits incompatible old crate
+# manifests (e.g. `sha1 0.11.0` is unparseable on newer Cargo).
+# The generated lockfile is a build-time artifact only -- it lives
+# inside the builder stage and is not copied to the runtime image.
+RUN cargo generate-lockfile --quiet
 RUN cargo build -p ${SERVICE} --release
 
 FROM debian:bookworm-slim
