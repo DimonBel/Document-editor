@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
-use ed_contracts::EventMessage;
+use ed_contracts::{EventMessage, IEventMessage};
 use crate::error::PgError;
 use async_trait::async_trait;
 
@@ -205,7 +205,7 @@ pub fn make_outbox<T: Serialize>(
                 "topic": topic,
                 "aggregate_type": aggregate_type,
                 "aggregate_id": aggregate_id,
-                "occurred_at": evt.occurred_at(),
+                "occurred_at": evt.occurred_at().to_rfc3339(),
             })
         }
     };
@@ -215,7 +215,7 @@ pub fn make_outbox<T: Serialize>(
         topic: topic.to_string(),
         aggregate_type: aggregate_type.to_string(),
         aggregate_id: aggregate_id.to_string(),
-        correlation_id: evt.correlation_id().to_string(),
+        correlation_id: evt.correlation_id().to_string(),  // .correlation_id is a field; .to_string() via the trait via Display
         payload,
         status: OutboxStatus::Pending as i16,
         attempt_count: 0,
