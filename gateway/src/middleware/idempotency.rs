@@ -158,7 +158,12 @@ async fn read_body_for_key(req: &Request) -> Result<(), ()> {
     // consuming the whole request (which `into_parts` would do);
     // the headers/extensions remain available to the next
     // middleware in the chain.
-    let body = req.clone().into_body();
+    // `into_body()` consumes `self`, which we can't do through
+    // a `&Request`. Use `parts()` instead -- it does not consume
+    // the body, so we can read the body to completion and still
+    // hand a non-consumed request to the next middleware.
+    let (parts, body) = req.parts().clone().into_parts();
+    let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
     bytes.map(|b| {
         let mut sha = Sha256::new();
