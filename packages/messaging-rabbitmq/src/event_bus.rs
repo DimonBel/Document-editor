@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use lapin::{Channel, Connection, ConnectionProperties, options::BasicPublishOptions, BasicProperties};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use ed_contracts::{EventMessage, IEventMessage};
+use ed_contracts::EventMessage;
 use serde::Serialize;
 use crate::error::BrokerError;
 use crate::topology::{Topology, TopologyDeclaration};

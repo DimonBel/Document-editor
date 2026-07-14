@@ -1,6 +1,6 @@
 use lapin::{Channel, options::BasicPublishOptions, BasicProperties};
 use serde::Serialize;
-use ed_contracts::{EventMessage, IEventMessage};
+use ed_contracts::EventMessage;
 use crate::error::BrokerError;
 
 pub struct HubProducer { pub channel: Channel }
