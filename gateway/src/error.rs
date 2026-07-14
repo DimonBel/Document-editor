@@ -68,17 +68,17 @@ impl AppError {
         // we turn into an owned `String` below so the struct field
         // has the expected owned type.
         let (title, kind_suffix, detail) = match self {
-            AppError::NotFound { what } => ("Not found", "not-found", Some(what.clone())),
-            AppError::BadRequest(d)    => ("Bad request", "bad-request", Some(d.clone())),
-            AppError::Unauthorized(d)  => ("Unauthorized", "unauthorized", Some(d.clone())),
-            AppError::Forbidden(d)     => ("Forbidden", "forbidden", Some(d.clone())),
-            AppError::Validation(d)    => ("Validation failed", "validation", Some(d.clone())),
-            AppError::Conflict(d)      => ("Conflict", "conflict", Some(d.clone())),
-            AppError::RateLimited { .. } => ("Rate limit exceeded", "rate-limited", Some("too many requests".into())),
+            AppError::NotFound { what } => ("Not found", Some("not-found"), Some(what.clone())),
+            AppError::BadRequest(d)    => ("Bad request", Some("bad-request"), Some(d.clone())),
+            AppError::Unauthorized(d)  => ("Unauthorized", Some("unauthorized"), Some(d.clone())),
+            AppError::Forbidden(d)     => ("Forbidden", Some("forbidden"), Some(d.clone())),
+            AppError::Validation(d)    => ("Validation failed", Some("validation"), Some(d.clone())),
+            AppError::Conflict(d)      => ("Conflict", Some("conflict"), Some(d.clone())),
+            AppError::RateLimited { .. } => ("Rate limit exceeded", Some("rate-limited"), Some("too many requests".into())),
             // Public errors: detail is intentionally generic.
-            AppError::Upstream(_)  => ("Upstream unavailable", "upstream", None),
-            AppError::Broker(_)    => ("Broker unavailable",  "broker", None),
-            AppError::Internal(_)  => ("Internal server error", "internal", None),
+            AppError::Upstream(_)  => ("Upstream unavailable", None, None),
+            AppError::Broker(_)    => ("Broker unavailable",  None, None),
+            AppError::Internal(_)  => ("Internal server error", None, None),
         };
         let s = self.status();
         let kind = kind_suffix
