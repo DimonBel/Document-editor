@@ -2,7 +2,6 @@ use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
     http::{header::AUTHORIZATION, request::Parts},
-    response::IntoResponse,
 };
 use crate::verifier::JwtVerifier;
 use ed_domain::UserId;

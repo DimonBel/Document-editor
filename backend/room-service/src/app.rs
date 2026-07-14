@@ -64,6 +64,7 @@ pub async fn run() -> anyhow::Result<()> {
         batch_size: 50,
         max_attempts: 5,
         backoff_base_ms: 500,
+        relay_id: format!("room-service@{}", uuid::Uuid::new_v4()),
         backoff_max_ms: 60_000,
     });
     let relay_clone = Arc::clone(&relay);

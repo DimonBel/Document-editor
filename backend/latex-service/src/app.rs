@@ -82,6 +82,7 @@ pub async fn run() -> anyhow::Result<()> {
         max_attempts: 5,
         backoff_base_ms: 500,
         backoff_max_ms: 60_000,
+        relay_id: format!("latex-service@{}", uuid::Uuid::new_v4()),
     });
     let relay_clone = Arc::clone(&relay);
     tokio::spawn(async move { relay_clone.run().await; });
