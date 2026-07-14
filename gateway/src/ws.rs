@@ -81,15 +81,18 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
                 // representation matches). Reconstruct the tungstenite
                 // one via `CloseFrame::from((code_u16, reason_bytes))`.
                 Message::Close(c) => TMessage::Close(c.map(|cf| {
-                    // `CloseCode` is an enum whose variants depend
-                    // on the tungstenite version. We pick a
-                    // catch-all by constructing through the public
-                    // `From<u16>` impl if present, otherwise via the
-                    // `Private(u16)` variant. The actual `code` u16
-                    // round-trips through the wire regardless.
+                    // In tungstenite 0.24 the `CloseCode` enum is
+                    // `{Normal, Away, Protocol, Unsupported, Status,
+                    // Abnormal, Invalid, Policy, Size, Extension,
+                    // Error, Restart, Again, Tls, Reserved(u16),
+                    // Iana(u16), Library(u16), Bad(u16)}`. The
+                    // catch-all for arbitrary wire codes is
+                    // `Bad(u16)`. We round-trip through `u16` so the
+                    // exact code is preserved regardless of which
+                    // named bucket it falls into.
                     let raw: u16 = u16::from(cf.code);
                     tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Other(raw),
+                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Bad(raw),
                         reason: std::borrow::Cow::Owned(
                             String::from_utf8_lossy(cf.reason.as_bytes()).into_owned()
                         ),

@@ -10,8 +10,10 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::auth::{internal_token, login, refresh};
 use crate::health::healthz;
-use crate::middleware::{correlation::correlation_middleware, idempotency::idempotency_middleware,
-                       logging::logging_middleware, rate_limit::rate_limit_middleware};
+use crate::middleware::{
+    correlation::correlation_middleware, idempotency::idempotency_middleware,
+    logging::logging_middleware, rate_limit::rate_limit_middleware,
+};
 use crate::proxy::proxy;
 use crate::realtime::sse;
 use crate::security::{jwks::jwks, middleware::auth_middleware};
@@ -19,6 +21,14 @@ use crate::state::AppState;
 use crate::ws::ws_handler;
 
 pub fn build_router(state: AppState) -> Router {
+    // Pre-clone `AppState` so each closure can move its own
+    // owned copy (axum's `from_fn` requires `Fn` + `Send +
+    // 'static`, and `move` closures capture by value). The
+    // original `state` is reserved for `with_state` at the end.
+    let st_auth = state.clone();
+    let st_rate = state.clone();
+    let st_idem = state.clone();
+
     Router::new()
         // Public
         .route("/healthz", get(healthz))
@@ -33,31 +43,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/{svc}/{*path}", any(proxy))
         // WebSocket proxy: /ws/{svc}/{path:path}
         .route("/ws/{svc}/{*path}", get(ws_handler))
-        // The auth + rate-limit middlewares need access to
-        // `JwtVerifier` from `AppState`. The cleanest way to
-        // express that in axum 0.7 is an inline closure that
-        // captures the state and lets axum fill in the request
-        // type; this avoids the generic-type parameter dance
-        // that `from_fn_with_state(auth_middleware, ...)` would
-        // require.
         .layer(middleware::from_fn(move |req, next| {
-            let st = state.clone();
-            crate::security::middleware::auth_middleware(
-                axum::extract::State(st),
-                req,
-                next,
-            )
+            auth_middleware(axum::extract::State(st_auth.clone()), req, next)
         }))
         .layer(middleware::from_fn(move |req, next| {
-            let st = state.clone();
-            crate::middleware::rate_limit::rate_limit_middleware(
-                axum::extract::State(st),
-                req,
-                next,
-            )
+            rate_limit_middleware(axum::extract::State(st_rate.clone()), req, next)
         }))
         .layer(middleware::from_fn(move |req, next| {
-            idempotency_middleware(axum::extract::State(state.clone()), req, next)
+            idempotency_middleware(axum::extract::State(st_idem.clone()), req, next)
         }))
         .layer(middleware::from_fn(correlation_middleware))
         .layer(middleware::from_fn(logging_middleware))
