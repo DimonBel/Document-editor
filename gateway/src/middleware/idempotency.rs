@@ -49,7 +49,8 @@ pub async fn idempotency_middleware(
     req: Request,
     next: Next,
 ) -> Response {
-    if req.method() == axum::http::Method::GET {
+    let method = req.method().clone();
+    if method == axum::http::Method::GET {
         return next.run(req).await;
     }
     let key = match req.headers().get(HEADER_KEY).and_then(|v| v.to_str().ok()) {
@@ -153,10 +154,13 @@ pub async fn idempotency_middleware(
 /// key builder function can include it. Used to dedupe idempotency-key
 /// collisions across distinct bodies.
 async fn read_body_for_key(req: &Request) -> Result<(), ()> {
-    // `axum::body::Body` is `Clone`-able in axum 0.7 (it wraps the
-    // shared `Bytes`); clone first, then split.
-    let (_, body) = req.clone().into_parts();
+    // `Request::into_parts` consumes `self`, but `Body` is `Clone`
+    // (it's an `axum::body::Body` wrapping a shared `Bytes`).
+    // Clone the request, then split; the body handle is cheap to
+    // duplicate, and we don't actually read from it here.
+    let (parts, body) = req.clone().into_parts();
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
+    let _ = parts; // keep the `parts` for future use
     bytes.map(|b| {
         let mut sha = Sha256::new();
         sha.update(&b);

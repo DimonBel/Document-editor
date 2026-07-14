@@ -56,7 +56,9 @@ pub fn build_router(state: AppState) -> Router {
                 next,
             )
         }))
-        .layer(middleware::from_fn(idempotency_middleware))
+        .layer(middleware::from_fn(move |req, next| {
+            idempotency_middleware(State(state.clone()), req, next)
+        }))
         .layer(middleware::from_fn(correlation_middleware))
         .layer(middleware::from_fn(logging_middleware))
         .layer(TraceLayer::new_for_http())

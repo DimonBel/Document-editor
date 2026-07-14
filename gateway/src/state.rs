@@ -79,7 +79,7 @@ impl AppState {
         }
 
         Ok(Self {
-            config: cfg,
+            config: cfg.clone(),
             keys,
             redis,
             http,

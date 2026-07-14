@@ -59,6 +59,12 @@ impl AppError {
         }
     }
     pub fn to_problem(&self, instance: Option<String>) -> ProblemDetails {
+        // We build the values manually instead of using a single
+        // `match` because the `kind` field on `ProblemDetails` is
+        // a fully owned `String`; using a match with a borrowed
+        // pattern (`Some(k)` where `k: &str`) would require the
+        // arms to return `Option<&str>` (the type of `kind_suffix`),
+        // not `String`, which is what `ProblemDetails.kind` expects.
         let (title, kind_suffix, detail) = match self {
             AppError::NotFound { what } => ("Not found", "not-found", Some(what.clone())),
             AppError::BadRequest(d)    => ("Bad request", "bad-request", Some(d.clone())),
