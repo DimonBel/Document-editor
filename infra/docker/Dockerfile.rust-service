@@ -2,6 +2,10 @@
 ARG SERVICE
 ARG INSTALL_TEX=""
 FROM rust:1.81-slim AS builder
+# ARGs declared before FROM are NOT automatically available in
+# subsequent stages; re-declare them here so the RUN below can
+# substitute ${SERVICE}.
+ARG SERVICE
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock* ./
