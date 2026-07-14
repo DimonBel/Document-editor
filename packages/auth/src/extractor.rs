@@ -2,8 +2,8 @@ use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
     http::{header::AUTHORIZATION, request::Parts},
+    response::IntoResponse,
 };
-use crate::error::AuthError;
 use crate::verifier::JwtVerifier;
 use ed_domain::UserId;
 use crate::current_user::CurrentUser;
@@ -16,7 +16,7 @@ where
     S: Send + Sync,
     JwtVerifier: FromRef<S>,
 {
-    type Rejection = axum::response::IntoResponse;
+    type Rejection = axum::response::Response;
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let verifier = JwtVerifier::from_ref(state);
         let token = parts
