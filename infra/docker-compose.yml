@@ -242,7 +242,7 @@ services:
       rabbit:       { condition: service_healthy }
       room-service: { condition: service_healthy }
       doc-service:  { condition: service_healthy }
-      latex-service:{ condition: service_healthy }
+      latex-service: { condition: service_healthy }
     read_only: true
     tmpfs:
       - /tmp
