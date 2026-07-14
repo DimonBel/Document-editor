@@ -75,13 +75,14 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 Message::Text(t) => TMessage::Text(t),
                 Message::Binary(b) => TMessage::Binary(b),
-                // axum's `Message::Close` carries `Option<CloseFrame>`.
-                // tungstenite's `TMessage::Close` also takes
-                // `Option<CloseFrame>` of its own kind; both are
-                // `Option<struct>` so this is a `Some(c)`.
+                // axum's `CloseFrame` and tungstenite's `CloseFrame`
+                // are distinct types but both expose `code: CloseCode`
+                // and `reason: Cow<'static, [u8]>` (the underlying
+                // representation matches). Reconstruct the tungstenite
+                // one via `CloseFrame::from((code_u16, reason_bytes))`.
                 Message::Close(c) => TMessage::Close(c.map(|cf| {
                     tokio_tungstenite::tungstenite::protocol::CloseFrame::from(
-                        (cf.code.0, cf.reason.as_bytes().to_vec()),
+                        (u16::from(cf.code), cf.reason.to_vec()),
                     )
                 })),
                 Message::Ping(p) => TMessage::Ping(p),
@@ -96,18 +97,17 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 TMessage::Text(t) => Message::Text(t),
                 TMessage::Binary(b) => Message::Binary(b),
-                // Convert tungstenite's `Option<CloseFrame>` to axum's
-                // `Message::Close(Option<CloseFrame>)`.
+                // Convert tungstenite's `CloseFrame` to axum's. The
+                // `CloseCode` enum carries an `into()` for u16; the
+                // reason is `Cow<'static, [u8]>` in both crates.
                 TMessage::Close(c) => Message::Close(c.map(|cf| {
                     axum::extract::ws::CloseFrame {
-                        code: axum::extract::ws::close_code::CloseCode::from(u16::from(cf.code)),
-                        reason: std::borrow::Cow::Owned(
-                            String::from_utf8_lossy(&cf.reason).into_owned(),
-                        ),
+                        code: axum::extract::ws::CloseCode::from(u16::from(cf.code)),
+                        reason: cf.reason,
                     }
                 })),
                 TMessage::Ping(p) => Message::Ping(p),
-                TMessage::Pong(p) => TMessage::Pong(p),
+                TMessage::Pong(p) => Message::Pong(p),
                 _ => continue,
             };
             if client_tx.send(translated).await.is_err() { break; }

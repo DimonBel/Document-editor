@@ -57,7 +57,7 @@ pub fn build_router(state: AppState) -> Router {
             )
         }))
         .layer(middleware::from_fn(move |req, next| {
-            idempotency_middleware(State(state.clone()), req, next)
+            idempotency_middleware(axum::extract::State(state.clone()), req, next)
         }))
         .layer(middleware::from_fn(correlation_middleware))
         .layer(middleware::from_fn(logging_middleware))

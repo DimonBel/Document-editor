@@ -63,8 +63,10 @@ impl AppError {
         // `match` because the `kind` field on `ProblemDetails` is
         // a fully owned `String`; using a match with a borrowed
         // pattern (`Some(k)` where `k: &str`) would require the
-        // arms to return `Option<&str>` (the type of `kind_suffix`),
-        // not `String`, which is what `ProblemDetails.kind` expects.
+        // Build three pieces of ProblemDetails separately. The
+        // match returns a borrowed `&str` for `kind_suffix`, which
+        // we turn into an owned `String` below so the struct field
+        // has the expected owned type.
         let (title, kind_suffix, detail) = match self {
             AppError::NotFound { what } => ("Not found", "not-found", Some(what.clone())),
             AppError::BadRequest(d)    => ("Bad request", "bad-request", Some(d.clone())),
@@ -79,10 +81,9 @@ impl AppError {
             AppError::Internal(_)  => ("Internal server error", "internal", None),
         };
         let s = self.status();
-        let kind = match kind_suffix {
-            Some(k) => format!("https://docs.ed/errors/{k}"),
-            None => format!("about:blank#{}", s.as_u16()),
-        };
+        let kind = kind_suffix
+            .map(|k| format!("https://docs.ed/errors/{k}"))
+            .unwrap_or_else(|| format!("about:blank#{}", s.as_u16()));
         ProblemDetails { kind,
             title: title.to_string(),
             status: s.as_u16(),
