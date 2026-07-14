@@ -78,6 +78,7 @@ pub fn hash_password(password: &str) -> Result<String, AppError> {
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
         .map_err(|e| AppError::Internal(format!("hash: {e}")))
+}
 
 /// Constant-time string comparison.
 pub fn ct_eq(a: &str, b: &str) -> bool {
