@@ -7,9 +7,11 @@ import { FormOutlined, FileTextOutlined } from '@ant-design/icons';
 // bundle, so a visitor who only opens the home page pays for
 // neither react-konva (whiteboard), CodeMirror (LaTeX) nor TipTap
 // (doc editor).
-const WhiteboardPage = lazy(() => import('./pages/WhiteboardPage'));
-const DocEditorPage = lazy(() => import('./pages/DocEditorPage'));
-const LaTeXEditorPage = lazy(() => import('./pages/LaTeXEditorPage'));
+// `React.lazy` expects a module with a `default` export. Our page
+// modules use named exports, so we adapt via `.then(...)`.
+const WhiteboardPage = lazy(() => import('./pages/WhiteboardPage').then(m => ({ default: m.WhiteboardPage })));
+const DocEditorPage = lazy(() => import('./pages/DocEditorPage').then(m => ({ default: m.DocEditorPage })));
+const LaTeXEditorPage = lazy(() => import('./pages/LaTeXEditorPage').then(m => ({ default: m.LaTeXEditorPage })));
 import { DocSelector } from './features/doc/DocSelector';
 import { RoomSelector } from './features/room/RoomSelector';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
