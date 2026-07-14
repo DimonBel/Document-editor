@@ -6,7 +6,8 @@ use base64::Engine;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
-use rsa::{traits::PublicKeyParts, RsaPrivateKey, RsaPublicKey};
+use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};

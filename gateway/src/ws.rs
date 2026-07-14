@@ -75,10 +75,15 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 Message::Text(t) => TMessage::Text(t),
                 Message::Binary(b) => TMessage::Binary(b),
-                // axum's `Message::Close` carries a different
-                // `CloseFrame` than tungstenite's. Unwrap to
-                // tungstenite's `Option<CloseFrame<'static>>`.
-                Message::Close(c) => TMessage::Close(Some(c.0)),
+                // axum's `Message::Close` carries `Option<CloseFrame>`.
+                // tungstenite's `TMessage::Close` also takes
+                // `Option<CloseFrame>` of its own kind; both are
+                // `Option<struct>` so this is a `Some(c)`.
+                Message::Close(c) => TMessage::Close(c.map(|cf| {
+                    tokio_tungstenite::tungstenite::protocol::CloseFrame::from(
+                        (cf.code.0, cf.reason.as_bytes().to_vec()),
+                    )
+                })),
                 Message::Ping(p) => TMessage::Ping(p),
                 Message::Pong(p) => TMessage::Pong(p),
             };
@@ -91,9 +96,16 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
             let translated = match msg {
                 TMessage::Text(t) => Message::Text(t),
                 TMessage::Binary(b) => Message::Binary(b),
-                // Convert tungstenite's `Option<CloseFrame<'static>>`
-                // to axum's `Message::Close(Option<CloseFrame<'static>>)`.
-                TMessage::Close(c) => Message::Close(c.map(axum::extract::ws::CloseFrame)),
+                // Convert tungstenite's `Option<CloseFrame>` to axum's
+                // `Message::Close(Option<CloseFrame>)`.
+                TMessage::Close(c) => Message::Close(c.map(|cf| {
+                    axum::extract::ws::CloseFrame {
+                        code: axum::extract::ws::close_code::CloseCode::from(u16::from(cf.code)),
+                        reason: std::borrow::Cow::Owned(
+                            String::from_utf8_lossy(&cf.reason).into_owned(),
+                        ),
+                    }
+                })),
                 TMessage::Ping(p) => Message::Ping(p),
                 TMessage::Pong(p) => TMessage::Pong(p),
                 _ => continue,

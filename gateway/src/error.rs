@@ -73,10 +73,11 @@ impl AppError {
             AppError::Internal(_)  => ("Internal server error", "internal", None),
         };
         let s = self.status();
-        ProblemDetails {
-            kind: kind_suffix
-                .map(|k| format!("https://docs.ed/errors/{k}"))
-                .unwrap_or_else(|| format!("about:blank#{}", s.as_u16())),
+        let kind = match kind_suffix {
+            Some(k) => format!("https://docs.ed/errors/{k}"),
+            None => format!("about:blank#{}", s.as_u16()),
+        };
+        ProblemDetails { kind,
             title: title.to_string(),
             status: s.as_u16(),
             detail,
