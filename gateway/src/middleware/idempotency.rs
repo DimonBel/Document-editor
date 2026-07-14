@@ -164,6 +164,14 @@ async fn read_body_for_key(req: &Request) -> Result<(), ()> {
     // body from the clone. The original request (`req`) is left
     // untouched so the next middleware downstream sees the full
     // request including any consumed headers.
+    //
+    // The error "no method named `parts`" was misleading -- axum
+    // 0.8 `Request` does have `into_parts()` (consuming) but no
+    // non-consuming `parts()` accessor. Cloning avoids both the
+    // move-error and the API-mismatch.
+    let clone = req.clone();
+    let (parts, body) = clone.into_parts();
+    let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
     let (parts, body) = req.parts().clone().into_parts();
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;
     let bytes: Result<Bytes, _> = to_bytes(body, MAX_BODY).await;

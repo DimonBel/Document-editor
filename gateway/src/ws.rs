@@ -81,13 +81,13 @@ async fn run_proxy(client: WebSocket, upstream_url: String, internal_token: Stri
                 // representation matches). Reconstruct the tungstenite
                 // one via `CloseFrame::from((code_u16, reason_bytes))`.
                 Message::Close(c) => TMessage::Close(c.map(|cf| {
-                    // Construct a tungstenite `CloseFrame` manually.
-                    // `CloseCode` is an enum with `Normal`, `Away`,
-                    // `Protocol`, `IanaRegistered` variants + a
-                    // `Custom(u16)` catch-all -- we map `u16::from
-                    // (cf.code)` into a `CloseCode` via `From`.
+                    // tungstenite 0.24: `CloseCode` is an enum with
+                    // variants `Normal`, `Away`, `Protocol`,
+                    // `IanaRegistered(u16)`, `Library(u16)`,
+                    // `Private(u16)`. Wrap arbitrary u16s as
+                    // `CloseCode::IanaRegistered`.
                     tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                        code: tokio_tungstenite::tungstenite::protocol::CloseCode::from(u16::from(cf.code)),
+                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::IanaRegistered(u16::from(cf.code)),
                         reason: std::borrow::Cow::Owned(
                             String::from_utf8_lossy(cf.reason.as_bytes()).into_owned()
                         ),
