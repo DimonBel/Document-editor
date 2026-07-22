@@ -55,25 +55,60 @@ impl SubscriberTable {
             if v.is_empty() { self.by_topic.remove(topic); }
         }
     }
+
+    /// Broadcast to every subscriber whose subscription pattern matches
+    /// `topic`. Patterns use RabbitMQ topic-exchange semantics:
+    /// - `*` matches exactly one dot-delimited word
+    /// - `#` matches zero or more words (must be the whole segment)
+    /// A pattern with no wildcards is treated as an exact-match key.
     pub fn broadcast(&mut self, topic: &str, msg: serde_json::Value) {
-        if let Some(senders) = self.by_topic.get_mut(topic) {
-            let mut idx = 0;
-            while idx < senders.len() {
-                let s = &senders[idx];
-                // Try to push; on full queue drop the oldest by
-                // `try_send` semantics: cap with a bounded buffer and
-                // drop if the consumer is too slow.
-                match s.try_send(msg.clone()) {
-                    Ok(_) => idx += 1,
-                    Err(_) => {
-                        // emit one synthetic lagged event, then drop
-                        let _ = s.try_send(serde_json::json!({
-                            "topic": topic, "lagged": true,
-                        }));
-                        idx += 1;
+        let keys: Vec<String> = self.by_topic.keys().cloned().collect();
+        for key in keys {
+            if topic_matches(&key, topic) {
+                if let Some(senders) = self.by_topic.get_mut(&key) {
+                    let mut idx = 0;
+                    while idx < senders.len() {
+                        let s = &senders[idx];
+                        match s.try_send(msg.clone()) {
+                            Ok(_) => idx += 1,
+                            Err(_) => {
+                                let _ = s.try_send(serde_json::json!({
+                                    "topic": topic, "lagged": true,
+                                }));
+                                idx += 1;
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/// RabbitMQ-style topic pattern matcher.
+/// `*` matches exactly one word; `#` matches zero or more words.
+fn topic_matches(pattern: &str, topic: &str) -> bool {
+    if pattern == topic { return true; }
+    if !pattern.contains('*') && !pattern.contains('#') { return false; }
+    let p_parts: Vec<&str> = pattern.split('.').collect();
+    let t_parts: Vec<&str> = topic.split('.').collect();
+    match_wildcard(&p_parts, &t_parts)
+}
+
+fn match_wildcard(p: &[&str], t: &[&str]) -> bool {
+    if p.is_empty() && t.is_empty() { return true; }
+    if p.is_empty() { return false; }
+    match p[0] {
+        "#" => {
+            // `#` matches the rest of the topic
+            match_wildcard(&p[1..], t) || (!t.is_empty() && match_wildcard(p, &t[1..]))
+        }
+        "*" => {
+            // `*` matches exactly one word
+            !t.is_empty() && match_wildcard(&p[1..], &t[1..])
+        }
+        exact => {
+            !t.is_empty() && t[0] == exact && match_wildcard(&p[1..], &t[1..])
         }
     }
 }
@@ -88,15 +123,15 @@ pub async fn sse(
     let mut topics: Vec<String> = q
         .topics
         .as_deref()
-        .unwrap_or("room.*")
+        .unwrap_or("room.#")
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
     if topics.is_empty() {
-        // Always subscribe to at least `room.*` so a misbehaving client
+        // Always subscribe to at least `room.#` so a misbehaving client
         // still gets a stream (and is rate-limited accordingly).
-        topics.push("room.*".into());
+        topics.push("room.#".into());
     }
 
     let (tx, rx) = channel::<serde_json::Value>(MAX_QUEUE);
@@ -131,9 +166,32 @@ pub async fn sse(
             }
         }
     }
-    let _guard = UnregisterOnDrop { sb: sb_drop, tx: tx.clone(), topics: topics_drop };
+    let guard = UnregisterOnDrop { sb: sb_drop, tx: tx.clone(), topics: topics_drop };
 
-    let stream = ReceiverStream::new(rx).map(move |msg| {
+    // Stream wrapper that owns the guard, ensuring it lives for the
+    // full lifetime of the response and is dropped when the client
+    // disconnects (issue #204).
+    struct GuardedStream<S> {
+        inner: S,
+        guard: Option<UnregisterOnDrop>,
+    }
+    impl<S: Stream + Unpin> Stream for GuardedStream<S> {
+        type Item = S::Item;
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::pin::Pin::new(&mut self.inner).poll_next(cx)
+        }
+    }
+    impl<S> Drop for GuardedStream<S> {
+        fn drop(&mut self) {
+            // explicit take so the inner Drop runs at stream-drop time
+            self.guard.take();
+        }
+    }
+
+    let inner = ReceiverStream::new(rx).map(move |msg| {
         let topic = msg
             .get("topic")
             .and_then(|t| t.as_str())
@@ -148,13 +206,13 @@ pub async fn sse(
         )
     });
 
+    let stream = GuardedStream { inner, guard: Some(guard) };
+
     Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keepalive"),
     )
-    // The `_guard` lives until the response stream is fully consumed
-    // (i.e. when the client disconnects or the handler is cancelled).
 }
 
 /// Subscribe to RabbitMQ and republish to in-process channels.
@@ -186,7 +244,8 @@ pub async fn start_rabbit_consumer(state: AppState) -> anyhow::Result<()> {
         )
         .await?;
 
-    // Declare a queue + binding (catch-all `*` from `ed.events`)
+    // Declare a queue + binding. Issue #205: use `#` (multi-word wildcard)
+    // not `*` (single-word), otherwise `room.snapshot` etc. never reach us.
     let q = channel
         .queue_declare(
             "ed.gateway.sse",
@@ -195,7 +254,7 @@ pub async fn start_rabbit_consumer(state: AppState) -> anyhow::Result<()> {
         )
         .await?;
     channel
-        .queue_bind(q.name().as_str(), "ed.events", "*", QueueBindOptions::default(), FieldTable::default())
+        .queue_bind(q.name().as_str(), "ed.events", "#", QueueBindOptions::default(), FieldTable::default())
         .await?;
 
     // Store the channel in shared state

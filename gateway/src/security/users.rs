@@ -40,13 +40,18 @@ pub trait UserStore: Send + Sync {
 /// startup and prints the hash for the operator to persist).
 pub struct InMemoryUserStore {
     by_username: Arc<RwLock<HashMap<String, User>>>,
+    by_id: Arc<RwLock<HashMap<String, User>>>,
 }
 
 impl InMemoryUserStore {
     pub fn new() -> Self {
-        Self { by_username: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            by_username: Arc::new(RwLock::new(HashMap::new())),
+            by_id: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
     pub fn insert(&self, user: User) {
+        self.by_id.write().insert(user.id.clone(), user.clone());
         self.by_username.write().insert(user.username.clone(), user);
     }
 }
@@ -56,9 +61,9 @@ impl UserStore for InMemoryUserStore {
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
         Ok(self.by_username.read().get(username).cloned())
     }
-    async fn find_by_id(&self, _id: &str) -> Result<Option<User>, AppError> {
-        // In-memory store doesn't index by id; scan username map.
-        Ok(self.by_username.read().values().next().cloned())
+    async fn find_by_id(&self, id: &str) -> Result<Option<User>, AppError> {
+        // Issue #203: previously returned the first user regardless of id.
+        Ok(self.by_id.read().get(id).cloned())
     }
 }
 
