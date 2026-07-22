@@ -61,12 +61,22 @@ pub async fn run() -> anyhow::Result<()> {
 
     let room_state = RoomAppState { repo: mongo_repo, cache, hub: crate::ws::RoomHub::default(), outbox };
 
+    // Issue #217: enforce internal-JWT auth on every non-healthz route.
+    let internal_secret = std::env::var("INTERNAL_SERVICE_TOKEN_SECRET")
+        .unwrap_or_else(|_| "dev-only-secret".into());
+    let verifier = Arc::new(ed_auth::JwtVerifier::new_from_secret(
+        internal_secret.as_bytes(),
+        "ed-gateway",
+        "internal",
+    ));
+
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/rooms", get(list_rooms).post(create_room))
         .route("/api/rooms/{id}", get(get_room).delete(delete_room))
         .route("/api/v1/room-service/ws/room/{id}", get(ws_handler))
         .with_state(room_state)
+        .layer(axum::middleware::from_fn_with_state(verifier.clone(), crate::auth::require_internal_auth))
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
