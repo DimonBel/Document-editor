@@ -62,7 +62,9 @@ pub async fn run() -> anyhow::Result<()> {
     ed_observability::init_tracing("latex-service", true);
 
     let pool = sqlx::PgPool::connect(&cfg.database_url).await?;
-    sqlx::migrate!("../../packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+    sqlx::migrate!("../../packages/persistence-postgres/src/migrations")
+        .run(&pool).await
+        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
 
     let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore { pool });
     let redis = deadpool_redis::Config::from_url(&cfg.redis_url)

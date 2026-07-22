@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
-use crate::handlers::{create_document, delete_document, get_document, list_documents};
+use crate::handlers::{create_document, delete_document, get_document, list_documents, update_document};
 use crate::ws::ws_handler;
 use crate::ws::DocHub;
 use ed_persistence_postgres::{EfOutboxStore, OutboxStore};
@@ -33,7 +33,11 @@ pub async fn run() -> anyhow::Result<()> {
     ed_observability::init_tracing("doc-service", true);
 
     let pool = PgPool::connect(&cfg.database_url).await?;
-    sqlx::migrate!("../../packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+    // Issue #225: don't swallow migration failures -- the previous
+    // `.await.ok()` would let the service start on a stale schema.
+    sqlx::migrate!("../../packages/persistence-postgres/src/migrations")
+        .run(&pool).await
+        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
 
     let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore { pool: pool.clone() });
     let redis = deadpool_redis::Config::from_url(&cfg.redis_url)
@@ -73,7 +77,11 @@ pub async fn run() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/documents", get(list_documents).post(create_document))
-        .route("/api/documents/{id}", get(get_document).delete(delete_document))
+        // Issue #222: register the previously-orphaned update handler on PUT.
+        .route("/api/documents/{id}",
+               get(get_document)
+                   .put(update_document)
+                   .delete(delete_document))
         .route("/api/v1/doc-service/ws/doc/{id}", get(ws_handler))
         .with_state(app.clone())
         .layer(axum::middleware::from_fn_with_state(verifier.clone(), crate::auth::require_internal_auth))

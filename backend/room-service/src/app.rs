@@ -34,7 +34,9 @@ pub async fn run() -> anyhow::Result<()> {
     let pool = PgPool::connect(&cfg.database_url).await?;
     let outbox: Arc<dyn ed_persistence_postgres::OutboxStore> =
     Arc::new(ed_persistence_postgres::EfOutboxStore { pool: pool.clone() });
-    sqlx::migrate!("../../packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+    sqlx::migrate!("../../packages/persistence-postgres/src/migrations")
+        .run(&pool).await
+        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
 
     let redis_cfg = deadpool_redis::Config::from_url(&cfg.redis_url);
     let redis = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;

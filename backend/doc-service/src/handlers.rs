@@ -1,7 +1,7 @@
 //! `doc-service` handlers -- real Postgres-backed CRUD + outbox.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -28,32 +28,65 @@ pub struct DocumentOut {
     pub version: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListDocumentsOut {
+    pub items: Vec<DocumentOut>,
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateDocumentIn {
     pub title: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct UpdateDocumentIn {
     pub title: Option<String>,
     pub content_ref: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ListQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
 pub async fn list_documents(
     State(state): State<AppState>,
-) -> Result<Json<Vec<DocumentOut>>, AppError> {
-    if let Ok(Some(cached)) = state.cache.get::<Vec<DocumentOut>>("docs:list").await {
+    Query(q): Query<ListQuery>,
+) -> Result<Json<ListDocumentsOut>, AppError> {
+    let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+    let cache_key = format!("docs:list:{}:{}", q.cursor.as_deref().unwrap_or(""), limit);
+    if let Ok(Some(cached)) = state.cache.get::<ListDocumentsOut>(&cache_key).await {
         return Ok(Json(cached));
     }
-    let rows = sqlx::query(
-        "SELECT id, title, COALESCE(content_ref, '') AS \"content_ref!\" FROM documents
-         WHERE is_deleted = false ORDER BY created_at DESC LIMIT 200",
-    )
-    .fetch_all(&state.pool)
-    .await
+    // Issue #224: cursor pagination via (created_at, id) -- avoids OFFSET
+    // scans and stays correct when new rows are inserted.
+    let cursor = q.cursor.as_deref().and_then(|s| {
+        let parts: Vec<&str> = s.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            chrono::DateTime::parse_from_rfc3339(parts[0]).ok().map(|t| (t.with_timezone(&chrono::Utc), parts[1].to_string()))
+        } else { None }
+    });
+    let rows = if let Some((ts, id)) = cursor {
+        sqlx::query(
+            "SELECT id, title, COALESCE(content_ref,'') AS \"content_ref!\", created_at FROM documents
+             WHERE is_deleted = false AND (created_at, id) < ($1::timestamptz, $2::uuid)
+             ORDER BY created_at DESC, id DESC LIMIT $3",
+        )
+        .bind(ts).bind(id).bind(limit)
+        .fetch_all(&state.pool).await
+    } else {
+        sqlx::query(
+            "SELECT id, title, COALESCE(content_ref,'') AS \"content_ref!\", created_at FROM documents
+             WHERE is_deleted = false ORDER BY created_at DESC, id DESC LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&state.pool).await
+    }
     .map_err(|e| AppError::Internal(format!("pg: {e}")))?;
-    let out: Vec<DocumentOut> = rows
-        .into_iter()
+    let items: Vec<DocumentOut> = rows
+        .iter()
         .map(|r| -> Result<DocumentOut, AppError> {
             Ok(DocumentOut {
                 id: r.try_get("id").map_err(|e| AppError::Internal(format!("pg row: {e}")))?,
@@ -64,7 +97,13 @@ pub async fn list_documents(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let _ = state.cache.set_ex("docs:list", &out, 15).await;
+    let next_cursor = rows.last().map(|r| {
+        let ts: chrono::DateTime<Utc> = r.try_get("created_at").unwrap_or_else(|_| Utc::now());
+        let id: Uuid = r.try_get("id").unwrap_or_else(|_| Uuid::nil());
+        format!("{}:{}", ts.to_rfc3339(), id)
+    });
+    let out = ListDocumentsOut { items, next_cursor: if next_cursor.is_some() && rows.len() as i64 == limit { next_cursor } else { None } };
+    let _ = state.cache.set_ex(&cache_key, &out, 15).await;
     Ok(Json(out))
 }
 
@@ -174,41 +213,42 @@ pub async fn update_document(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateDocumentIn>,
 ) -> Result<Json<DocumentOut>, AppError> {
-    let did = DocumentId::from(id);
-    let found = sqlx::query("SELECT title, COALESCE(content_ref, '') AS content_ref FROM documents WHERE id = $1 AND is_deleted = false")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("pg: {e}")))?
-        .ok_or(AppError::NotFound)?;
-
-    let found_title: String = found.try_get("title").map_err(|e| AppError::Internal(format!("pg row: {e}")))?;
-    let found_content_ref: String = found.try_get("content_ref").map_err(|e| AppError::Internal(format!("pg row: {e}")))?;
-    let mut domain = Document::new(found_title)
-        .map_err(|e: ed_domain::DomainError| AppError::Validation(e.to_string()))?;
-    if let Some(t) = body.title.clone() {
-        domain.set_title(t).map_err(|e: ed_domain::DomainError| AppError::Validation(e.to_string()))?;
+    // Issue #222: reject empty PATCH-like updates with 400.
+    if body.title.is_none() && body.content_ref.is_none() {
+        return Err(AppError::Validation("at least one of `title` or `content_ref` is required".into()));
     }
-    domain.audit.entity.version += 1;
+    let did = DocumentId::from(id);
 
-    sqlx::query(
-        "UPDATE documents SET title = $1, content_ref = COALESCE($2, content_ref), version_seq = $3, updated_at = now() WHERE id = $4",
+    // Issue #246: collapse SELECT-then-UPDATE into one UPDATE ... RETURNING.
+    let row = sqlx::query(
+        "UPDATE documents SET
+             title       = COALESCE($1, title),
+             content_ref = COALESCE($2, content_ref),
+             version_seq = version_seq + 1,
+             updated_at  = now()
+         WHERE id = $3 AND is_deleted = false
+         RETURNING id, title, COALESCE(content_ref,'') AS \"content_ref!\", version_seq",
     )
-    .bind(&domain.title)
-    .bind(body.content_ref.unwrap_or(found_content_ref.clone()))
-    .bind(domain.audit.entity.version as i64)
+    .bind(body.title.as_deref())
+    .bind(body.content_ref.as_deref())
     .bind(id)
-    .execute(&state.pool)
+    .fetch_optional(&state.pool)
     .await
-    .map_err(|e| AppError::Internal(format!("pg: {e}")))?;
+    .map_err(|e| AppError::Internal(format!("pg: {e}")))?
+    .ok_or(AppError::NotFound)?;
+
+    let new_title: String = row.try_get("title").map_err(|e| AppError::Internal(format!("pg row: {e}")))?;
+    let new_ref: String = row.try_get("content_ref!").or_else(|_| row.try_get("content_ref"))
+        .map_err(|e| AppError::Internal(format!("pg row: {e}")))?;
+    let new_version: i64 = row.try_get("version_seq").map_err(|e| AppError::Internal(format!("pg row: {e}")))?;
 
     let evt = EventMessage::new(
         topics::document::UPDATED,
         topics::document::UPDATED,
         DocumentUpdatedEvent {
             document_id: id,
-            title: domain.title.clone(),
-            new_version_seq: domain.audit.entity.version,
+            title: new_title.clone(),
+            new_version_seq: new_version as u64,
         },
         "doc-service",
     );
@@ -219,8 +259,8 @@ pub async fn update_document(
 
     Ok(Json(DocumentOut {
         id,
-        title: domain.title,
-        content_ref: found_content_ref,
-        version: domain.audit.entity.version,
+        title: new_title,
+        content_ref: new_ref,
+        version: new_version as u64,
     }))
 }

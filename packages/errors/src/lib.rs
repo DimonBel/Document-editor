@@ -35,10 +35,32 @@ impl AppError {
 }
 pub type AppResult<T> = std::result::Result<T, AppError>;
 impl From<ed_domain::DomainError> for AppError { fn from(v: ed_domain::DomainError) -> Self { AppError::Domain(v) } }
-impl From<sqlx::Error> for AppError { fn from(e: sqlx::Error) -> Self { AppError::Infra(format!("sqlx: {e}")) } }
-impl From<mongodb::error::Error> for AppError { fn from(e: mongodb::error::Error) -> Self { AppError::Infra(format!("mongo: {e}")) } }
-impl From<lapin::Error> for AppError { fn from(e: lapin::Error) -> Self { AppError::Broker(format!("lapin: {e}")) } }
-impl From<serde_json::Error> for AppError { fn from(e: serde_json::Error) -> Self { AppError::Internal(format!("json: {e}")) } }
+// Issue #227: do not leak driver strings to API clients. Log the full
+// detail server-side, return a generic detail to the caller.
+impl From<sqlx::Error> for AppError {
+    fn from(e: sqlx::Error) -> Self {
+        tracing::error!(error = ?e, "sqlx error");
+        AppError::Infra("database error".into())
+    }
+}
+impl From<mongodb::error::Error> for AppError {
+    fn from(e: mongodb::error::Error) -> Self {
+        tracing::error!(error = ?e, "mongo error");
+        AppError::Infra("database error".into())
+    }
+}
+impl From<lapin::Error> for AppError {
+    fn from(e: lapin::Error) -> Self {
+        tracing::error!(error = ?e, "lapin error");
+        AppError::Broker("broker error".into())
+    }
+}
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        tracing::error!(error = ?e, "json error");
+        AppError::Internal("serialisation error".into())
+    }
+}
 
 #[cfg(feature = "axum")]
 impl axum::response::IntoResponse for AppError {
