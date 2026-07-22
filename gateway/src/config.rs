@@ -25,6 +25,11 @@ pub struct Config {
     pub otel_endpoint: String,
     pub rate_limit: HashMap<String, (u32, u32)>,  // prefix -> (capacity, refill_per_sec)
     pub services: HashMap<String, UpstreamConfig>,
+    /// Path on disk where the gateway persists its RSA keypair (issue #212).
+    /// Defaults to `/var/lib/ed/gateway/keys.json`; operators can override
+    /// with `GATEWAY_KEYS_PATH`. In dev mode (`ED_DEV_MODE=1`) keys are
+    /// regenerated every restart unless the file already exists.
+    pub keys_path: String,
 }
 
 impl Config {
@@ -72,9 +77,12 @@ impl Config {
             services.insert(svc.to_string(), UpstreamConfig { name: svc.into(), base_url: base });
         }
 
+        let keys_path = env::var("GATEWAY_KEYS_PATH")
+            .unwrap_or_else(|_| "/var/lib/ed/gateway/keys.json".into());
+
         Ok(Self { host, port, service_name, database_url, mongo_url, redis_url, rabbitmq_url,
                   jwt_issuer, jwt_audience, jwks_url, internal_service_token_secret, otel_endpoint,
-                  rate_limit, services })
+                  rate_limit, services, keys_path })
     }
 
     pub fn bind_addr(&self) -> String { format!("{}:{}", self.host, self.port) }

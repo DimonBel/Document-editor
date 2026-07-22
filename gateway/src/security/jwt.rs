@@ -7,6 +7,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
 use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
@@ -39,7 +40,23 @@ pub struct KeyManager {
 }
 
 impl KeyManager {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> anyhow::Result<Self> { Self::new_persisted(None) }
+
+    /// Construct (or load) the gateway's RSA keypair.
+    /// Issue #212: previously the keypair was regenerated on every restart,
+    /// invalidating all live tokens. If `path` is provided and the file
+    /// exists, the PEM is loaded; otherwise a new keypair is generated
+    /// and (if `path` is Some) written to disk in mode 0600.
+    pub fn new_persisted(path: Option<&std::path::Path>) -> anyhow::Result<Self> {
+        if let Some(p) = path {
+            if let Ok(bytes) = std::fs::read(p) {
+                if let Ok(pem_str) = std::str::from_utf8(&bytes) {
+                    if let Ok(km) = Self::from_pem(pem_str) {
+                        return Ok(km);
+                    }
+                }
+            }
+        }
         let mut rng = OsRng;
         let sk = RsaPrivateKey::new(&mut rng, 2048)?;
         let pk = RsaPublicKey::from(&sk);
@@ -60,10 +77,48 @@ impl KeyManager {
             "e": e_b64,
         });
 
-        Ok(Self {
+        let km = Self {
             encoding_key: EncodingKey::from_rsa_pem(pem.as_bytes())?,
             decoding_key: DecodingKey::from_rsa_pem(pem.as_bytes())?,
-            private_pem: pem_str,
+            private_pem: pem_str.clone(),
+            public_jwk: jwk,
+            kid,
+            pub_key_n_b64: n_b64,
+            pub_key_e_b64: e_b64,
+        };
+
+        if let Some(p) = path {
+            if let Some(parent) = p.parent() { let _ = std::fs::create_dir_all(parent); }
+            if let Err(e) = std::fs::write(p, pem_str.as_bytes()) {
+                tracing::warn!(error = %e, path = %p.display(), "could not persist RSA keypair");
+            }
+        }
+        Ok(km)
+    }
+
+    fn from_pem(pem_str: &str) -> anyhow::Result<Self> {
+        let pem_bytes = pem_str.as_bytes();
+        let pk = RsaPublicKey::from_public_key_pem(pem_str)
+            .or_else(|_| -> anyhow::Result<RsaPublicKey> {
+                // not directly loadable as public-only; try parsing as private
+                let sk = rsa::RsaPrivateKey::from_pkcs8_pem(pem_str)?;
+                Ok(RsaPublicKey::from(&sk))
+            })?;
+        let kid = "ed-gateway-1".to_string();
+        let n_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pk.n().to_bytes_be());
+        let e_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pk.e().to_bytes_be());
+        let jwk = serde_json::json!({
+            "kty": "RSA",
+            "kid": kid,
+            "use": "sig",
+            "alg": "RS256",
+            "n": n_b64,
+            "e": e_b64,
+        });
+        Ok(Self {
+            encoding_key: EncodingKey::from_rsa_pem(pem_bytes)?,
+            decoding_key: DecodingKey::from_rsa_pem(pem_bytes)?,
+            private_pem: pem_str.to_string(),
             public_jwk: jwk,
             kid,
             pub_key_n_b64: n_b64,

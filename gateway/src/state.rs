@@ -26,7 +26,10 @@ pub struct AppState {
 impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         let cfg = Arc::new(config);
-        let keys = Arc::new(KeyManager::new()?);
+        // Issue #212: load the RSA keypair from disk if present, else
+        // generate a new one and persist it (0600).
+        let keys_path = std::path::PathBuf::from(&cfg.keys_path);
+        let keys = Arc::new(KeyManager::new_persisted(Some(&keys_path))?);
 
         // Redis pool
         let redis_cfg = deadpool_redis::Config::from_url(&cfg.redis_url);
