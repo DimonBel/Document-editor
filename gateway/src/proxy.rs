@@ -6,7 +6,9 @@
 //!   3. Build the upstream URL: `<base_url>/<path>`.
 //!   4. Forward method, query, headers (filtered), and body.
 //!   5. Inject `Authorization: Internal <internal_token>` and `X-Correlation-Id`.
-//!   6. Stream the upstream response back to the client.
+//!   6. Buffer the upstream response and return it (capped at 16 MiB).
+//!      Issue #261: this is NOT a streaming implementation -- the
+//!      doc-comment previously claimed it was.
 
 use axum::{
     body::{to_bytes, Body},
