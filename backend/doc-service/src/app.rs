@@ -61,12 +61,22 @@ pub async fn run() -> anyhow::Result<()> {
 
     let app = AppState { pool: pool.clone(), cache, outbox: Arc::clone(&outbox), event_bus: Arc::clone(&event_bus), relay: Arc::clone(&relay), hub: DocHub::default() };
 
+    // Issue #217: enforce internal-JWT auth on every non-healthz route.
+    let internal_secret = std::env::var("INTERNAL_SERVICE_TOKEN_SECRET")
+        .unwrap_or_else(|_| "dev-only-secret".into());
+    let verifier = Arc::new(ed_auth::JwtVerifier::new_from_secret(
+        internal_secret.as_bytes(),
+        "ed-gateway",
+        "internal",
+    ));
+
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/documents", get(list_documents).post(create_document))
         .route("/api/documents/{id}", get(get_document).delete(delete_document))
         .route("/api/v1/doc-service/ws/doc/{id}", get(ws_handler))
         .with_state(app.clone())
+        .layer(axum::middleware::from_fn_with_state(verifier.clone(), crate::auth::require_internal_auth))
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;

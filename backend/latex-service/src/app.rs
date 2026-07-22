@@ -100,6 +100,16 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     let app_for_routes = app.clone();
+
+    // Issue #217: enforce internal-JWT auth on every non-healthz route.
+    let internal_secret = std::env::var("INTERNAL_SERVICE_TOKEN_SECRET")
+        .unwrap_or_else(|_| "dev-only-secret".into());
+    let verifier = Arc::new(ed_auth::JwtVerifier::new_from_secret(
+        internal_secret.as_bytes(),
+        "ed-gateway",
+        "internal",
+    ));
+
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/latex/compile",
@@ -113,6 +123,7 @@ pub async fn run() -> anyhow::Result<()> {
                    move |Json(b)| to_docx(State(s), Json(b))
                }))
         .with_state(app)
+        .layer(axum::middleware::from_fn_with_state(verifier.clone(), crate::auth::require_internal_auth))
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
