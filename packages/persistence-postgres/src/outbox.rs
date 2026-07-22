@@ -90,15 +90,15 @@ impl OutboxStore for EfOutboxStore {
         // 1. Reap expired leases (rows stuck InFlight whose lease
         //    has passed). Move them back to Retrying with an
         //    exponential backoff so a dead relay doesn't poison the
-        //    queue.
+        //    queue. Note: do NOT increment attempt_count here — the
+        //    subsequent claim step already does it once. (#202)
         sqlx::query(
             "UPDATE outbox_messages
              SET status = 1,
                  last_error = COALESCE(last_error, 'lease expired'),
-                 attempt_count = attempt_count + 1,
                  lease_until = NULL,
                  leased_to = NULL,
-                 next_attempt_at = now() + (LEAST(60, 2 ^ attempt_count) || ' seconds')::interval
+                 next_attempt_at = now() + (LEAST(60, power(2, attempt_count)::int) || ' seconds')::interval
              WHERE status = 2
                AND lease_until IS NOT NULL
                AND lease_until < now()"
