@@ -124,7 +124,15 @@ pub async fn idempotency_middleware(
     let (parts, body) = resp.into_parts();
     let body_bytes: Bytes = match to_bytes(body, MAX_BODY).await {
         Ok(b) => b,
-        Err(_) => return Response::from_parts(parts, Body::empty()),
+        // Issue #208: oversized bodies used to silently become empty.
+        // Now return 413 so the caller can retry with a smaller payload
+        // and skip the cache write entirely.
+        Err(_) => {
+            return Response::from_parts(
+                parts,
+                Body::from(r#"{"status":413,"title":"payload too large"}"#),
+            );
+        }
     };
     let headers_map: HashMap<String, String> = parts
         .headers
