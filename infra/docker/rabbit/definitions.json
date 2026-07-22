@@ -1,21 +1,74 @@
 {
   "vhosts": [{ "name": "/" }],
+  "users": [
+    { "name": "room-service",  "password_hash": "ed", "tags": [] },
+    { "name": "doc-service",   "password_hash": "ed", "tags": [] },
+    { "name": "latex-service", "password_hash": "ed", "tags": [] },
+    { "name": "gateway",       "password_hash": "ed", "tags": [] }
+  ],
+  "permissions": [
+    { "user": "room-service",  "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" },
+    { "user": "doc-service",   "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" },
+    { "user": "latex-service", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" },
+    { "user": "gateway",       "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" }
+  ],
   "exchanges": [
     { "name": "ed.events",    "type": "topic", "durable": true, "vhost": "/" },
     { "name": "ed.events.dlx","type": "topic", "durable": true, "vhost": "/" }
   ],
   "queues": [
-    { "name": "ed.room-service",     "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
-    { "name": "ed.doc-service",      "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
-    { "name": "ed.latex-service",    "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
-    { "name": "ed.audit",            "durable": true, "auto_delete": false, "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } },
-    { "name": "ed.realtime-gateway", "durable": false,"auto_delete": true,  "vhost": "/", "arguments": { "x-dead-letter-exchange": "ed.events.dlx" } }
+    {
+      "name": "ed.room-service", "durable": true, "auto_delete": false, "vhost": "/",
+      "arguments": {
+        "x-dead-letter-exchange": "ed.events.dlx",
+        "x-message-ttl": 86400000,
+        "x-max-length": 100000,
+        "x-overflow": "drop-head"
+      }
+    },
+    {
+      "name": "ed.doc-service", "durable": true, "auto_delete": false, "vhost": "/",
+      "arguments": {
+        "x-dead-letter-exchange": "ed.events.dlx",
+        "x-message-ttl": 86400000,
+        "x-max-length": 100000,
+        "x-overflow": "drop-head"
+      }
+    },
+    {
+      "name": "ed.latex-service", "durable": true, "auto_delete": false, "vhost": "/",
+      "arguments": {
+        "x-dead-letter-exchange": "ed.events.dlx",
+        "x-message-ttl": 86400000,
+        "x-max-length": 100000,
+        "x-overflow": "drop-head"
+      }
+    },
+    {
+      "name": "ed.audit", "durable": true, "auto_delete": false, "vhost": "/",
+      "arguments": {
+        "x-dead-letter-exchange": "ed.events.dlx",
+        "x-message-ttl": 86400000,
+        "x-max-length": 100000,
+        "x-overflow": "drop-head"
+      }
+    },
+    { "name": "ed.realtime-gateway", "durable": false,"auto_delete": true,  "vhost": "/" },
+    {
+      "name": "ed.dead-letter", "durable": true, "auto_delete": false, "vhost": "/",
+      "arguments": {
+        "x-message-ttl": 604800000,
+        "x-max-length": 10000,
+        "x-overflow": "drop-head"
+      }
+    }
   ],
   "bindings": [
     { "source": "ed.events", "destination": "ed.room-service",     "destination_type": "queue", "routing_key": "room.*",     "vhost": "/" },
     { "source": "ed.events", "destination": "ed.doc-service",      "destination_type": "queue", "routing_key": "document.*", "vhost": "/" },
     { "source": "ed.events", "destination": "ed.latex-service",    "destination_type": "queue", "routing_key": "latex.*",    "vhost": "/" },
     { "source": "ed.events", "destination": "ed.audit",            "destination_type": "queue", "routing_key": "#.audit.recorded", "vhost": "/" },
-    { "source": "ed.events", "destination": "ed.realtime-gateway", "destination_type": "queue", "routing_key": "*",         "vhost": "/" }
+    { "source": "ed.events", "destination": "ed.realtime-gateway", "destination_type": "queue", "routing_key": "#",         "vhost": "/" },
+    { "source": "ed.events.dlx", "destination": "ed.dead-letter",  "destination_type": "queue", "routing_key": "#",         "vhost": "/" }
   ]
 }
