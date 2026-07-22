@@ -95,6 +95,22 @@ fn topic_matches(pattern: &str, topic: &str) -> bool {
     match_wildcard(&p_parts, &t_parts)
 }
 
+/// Validate that a topic pattern is well-formed and uses only allowed
+/// namespaces. Issue #219: previously the SSE endpoint accepted arbitrary
+/// strings (`__proto__`, `..`, paths with `../`, etc.) as topic patterns.
+fn is_valid_topic_pattern(p: &str) -> bool {
+    if p.is_empty() || p.len() > 256 { return false; }
+    if p.contains("..") || p.contains('/') || p.contains('\\') { return false; }
+    // only `*` and `#` are allowed as wildcards, only as full segments
+    p.split('.').all(|seg| {
+        seg.is_empty() ||
+        seg == "*" ||
+        seg == "#" ||
+        (seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '*' || c == '#') &&
+         seg.matches('*').count() + seg.matches('#').count() == seg.chars().filter(|c| *c == '*' || *c == '#').count())
+    })
+}
+
 fn match_wildcard(p: &[&str], t: &[&str]) -> bool {
     if p.is_empty() && t.is_empty() { return true; }
     if p.is_empty() { return false; }
@@ -127,6 +143,7 @@ pub async fn sse(
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .filter(|s| is_valid_topic_pattern(s))  // Issue #219
         .collect();
     if topics.is_empty() {
         // Always subscribe to at least `room.#` so a misbehaving client
