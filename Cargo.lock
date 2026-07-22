@@ -1106,6 +1106,7 @@ name = "ed-auth"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "ed-domain",
  "ed-errors",
  "http",

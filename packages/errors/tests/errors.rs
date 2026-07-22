@@ -76,7 +76,7 @@ fn problem_details_serialises_to_json() {
 }
 
 #[test]
-fn problem_details_uses_type_field_not_r#type() {
+fn problem_details_uses_type_field_not_kind() {
     // serde(rename = "type") on a Rust field named `kind` -- ensure the wire key is "type"
     let p = ProblemDetails { kind: "about:blank#400".into(), title: "t".into(), status: 400, detail: None, instance: None };
     let j = serde_json::to_string(&p).unwrap();
