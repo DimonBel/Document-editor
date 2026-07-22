@@ -12,7 +12,10 @@ permissions:
 
 jobs:
   clippy:
-    name: clippy / backend
+    name: clippy / workspace
+    # Issue #259: was running only `cd backend && cargo clippy --all-targets`,
+    # which excluded the gateway, all `packages/*` crates, and infra scripts.
+    # Switch to the workspace root and target every member.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,8 +23,18 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-        with:
-          working-directory: backend
-      - name: Run clippy
-        working-directory: backend
-        run: cargo clippy --all-targets
+      - name: Run clippy (workspace-wide)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Issue #260: there was no `cargo test --workspace` step at all -- the
+  # extensive unit-test suite in packages/* and the gateway was running
+  # only locally. Add it on every PR.
+  test:
+    name: test / workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cargo test --workspace
+        run: cargo test --workspace --all-targets

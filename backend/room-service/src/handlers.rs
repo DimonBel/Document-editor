@@ -87,7 +87,9 @@ pub async fn list_rooms(
         .await
         .map_err(|e| AppError::Internal(format!("mongo: {e}")))?;
     let out: Vec<RoomOut> = rooms.iter().map(RoomOut::from).collect();
-    let _ = state.cache.set_ex("rooms:list", &out, 15).await;
+    if let Err(e) = state.cache.set_ex("rooms:list", &out, 15).await {
+        tracing::warn!(error = %e, "rooms:list cache set failed");
+    }
     Ok(Json(out))
 }
 
