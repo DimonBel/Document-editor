@@ -62,6 +62,19 @@ pub async fn run() -> anyhow::Result<()> {
     tokio::spawn(async move { relay_clone.run().await; });
 
     let room_state = RoomAppState { repo: mongo_repo, cache, hub: crate::ws::RoomHub::default(), outbox };
+    let janitor_hub = room_state.hub.clone();
+    tokio::spawn(async move {
+        // Issue #249: idle-room janitor. Every 60 s, evict rooms
+        // whose last activity is older than 5 minutes.
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let evicted = janitor_hub.evict_idle(std::time::Duration::from_secs(300));
+            if evicted > 0 {
+                tracing::info!(evicted, "evicted idle WS rooms");
+            }
+        }
+    });
 
     // Issue #217: enforce internal-JWT auth on every non-healthz route.
     let internal_secret = std::env::var("INTERNAL_SERVICE_TOKEN_SECRET")
