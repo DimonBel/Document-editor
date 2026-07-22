@@ -15,7 +15,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::error::{AppError, AppResult};
@@ -24,11 +23,30 @@ use crate::state::AppState;
 
 const MAX_BODY: usize = 16 * 1024 * 1024; // 16 MiB
 
+/// Use raw `Bytes` for the query so duplicate keys (`?tag=a&tag=b`) and
+/// ordering are preserved (issue #211). The HashMap extractor dropped both.
+#[derive(Debug, Default)]
+pub struct RawQuery(pub Option<String>);
+
+#[async_trait::async_trait]
+impl<S> axum::extract::FromRequestParts<S> for RawQuery
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(RawQuery(parts.uri.query().map(|s| s.to_string())))
+    }
+}
+
 pub async fn proxy(
     State(state): State<AppState>,
     method: Method,
     Path(captured_path): Path<String>,
-    Query(query): Query<HashMap<String, String>>,
+    RawQuery(raw_query): RawQuery,
     headers: HeaderMap,
     body: Body,
 ) -> AppResult<Response> {
@@ -49,14 +67,16 @@ pub async fn proxy(
     let body_bytes: Bytes = to_bytes(body, MAX_BODY).await
         .map_err(|e| AppError::BadRequest(format!("body read: {e}")))?;
 
-    // Filter incoming headers
+    // Filter incoming headers. Issue #210: strip client-supplied
+    // `Authorization` so the gateway-injected internal token is the only
+    // credential seen by the upstream.
     let mut req = state.http.request(method.clone(), &url);
     let mut header_count = 0;
     for (k, v) in headers.iter() {
-        // Strip hop-by-hop, content-length, host
         let name = k.as_str().to_lowercase();
         if matches!(name.as_str(),
-            "host" | "content-length" | "connection" | "transfer-encoding" | "keep-alive" | "upgrade"
+            "host" | "content-length" | "connection" | "transfer-encoding"
+            | "keep-alive" | "upgrade" | "authorization" | "x-gateway"
         ) { continue; }
         req = req.header(k.as_str(), v.as_bytes());
         header_count += 1;
@@ -70,6 +90,7 @@ pub async fn proxy(
         60,
     )?;
     req = req.header("Authorization", format!("Bearer {internal}"));
+    req = req.header("X-Gateway", "ed-gateway");
 
     // Forward correlation id (or generate one)
     let cid = headers
@@ -79,9 +100,11 @@ pub async fn proxy(
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     req = req.header("X-Correlation-Id", cid.clone());
 
-    // Forward query string
-    if !query.is_empty() {
-        req = req.query(&query);
+    // Forward raw query string (#211)
+    if let Some(q) = raw_query {
+        if !q.is_empty() {
+            req = req.query(&q);
+        }
     }
 
     // Attach body

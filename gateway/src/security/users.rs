@@ -109,15 +109,18 @@ impl RefreshTokenStore {
         Ok(token)
     }
     pub async fn consume(&self, token: &str) -> Result<Option<String>, AppError> {
+        // Issue #206: GET-then-DEL was two round-trips and not atomic -- two
+        // concurrent rotations could both observe the token and reuse the
+        // same jti. Use the GETDEL command (Redis 6.2+) for a single
+        // atomic read+delete.
         let mut conn = self.redis.get().await
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
         let key = format!("refresh:{token}");
-        let user_id: Option<String> = conn.get(&key).await
+        let user_id: Option<String> = redis::cmd("GETDEL")
+            .arg(&key)
+            .query_async(&mut *conn)
+            .await
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
-        if user_id.is_some() {
-            let _: () = conn.del(&key).await
-                .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
-        }
         Ok(user_id)
     }
 }
