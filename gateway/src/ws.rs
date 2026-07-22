@@ -1,6 +1,9 @@
 //! WebSocket proxy: forward `/ws/{svc}/{path:path}` to an upstream WS service.
 //!
-//! Bidirectional byte forwarding, ping/pong every 20s, close-code propagation.
+//! Bidirectional byte forwarding + close-code propagation. The
+//! application-level ping/pong relay is delegated to the upstream
+//! service (the underlying axum/tungstenite stack handles TCP-level
+//! keep-alive).
 
 use axum::{
     extract::{
