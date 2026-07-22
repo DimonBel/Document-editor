@@ -29,7 +29,7 @@ pub struct AppState {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    let cfg = Config::from_env();
+    let cfg = Config::from_env()?;
     ed_observability::init_tracing("doc-service", true);
 
     let pool = PgPool::connect(&cfg.database_url).await?;

@@ -9,14 +9,18 @@ pub struct Config {
     pub artefacts_dir: String,
 }
 impl Config {
-    pub fn from_env() -> Self {
-        Self {
+    /// #242: refuse to start with hardcoded DSN fallbacks.
+    pub fn from_env() -> anyhow::Result<Self> {
+        Ok(Self {
             host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             port: env::var("PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080),
-            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://ed:ed@postgres:5432/ed".into()),
-            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".into()),
-            rabbit_url: env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbit:5672/%2f".into()),
+            database_url: env::var("DATABASE_URL")
+                .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?,
+            redis_url: env::var("REDIS_URL")
+                .map_err(|_| anyhow::anyhow!("REDIS_URL must be set"))?,
+            rabbit_url: env::var("RABBITMQ_URL")
+                .map_err(|_| anyhow::anyhow!("RABBITMQ_URL must be set"))?,
             artefacts_dir: env::var("LATEX_ARTEFACTS_DIR").unwrap_or_else(|_| "/var/lib/latex".into()),
-        }
+        })
     }
 }

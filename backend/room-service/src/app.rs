@@ -23,7 +23,7 @@ use crate::handlers::{create_room, delete_room, get_room, list_rooms, RoomAppSta
 use crate::ws::ws_handler;
 
 pub async fn run() -> anyhow::Result<()> {
-    let cfg = Config::from_env();
+    let cfg = Config::from_env()?;
     ed_observability::init_tracing("room-service", true);
 
     let mongo = ed_persistence_mongo::MongoDb::connect(&cfg.mongo_url, "ed")
