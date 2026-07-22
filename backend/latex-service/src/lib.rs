@@ -1,1 +1,1 @@
-pub mod app; pub mod auth; pub mod config; pub mod handlers; pub mod messaging; pub mod artefacts;
+pub mod app; pub mod auth; pub mod config; pub mod messaging;
