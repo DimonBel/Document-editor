@@ -39,10 +39,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/internal", post(internal_token))
         // Realtime SSE
         .route("/api/realtime/sse", get(sse))
-        // Reverse proxy: /api/v1/{svc}/{path:path}
-        .route("/api/v1/{svc}/{*path}", any(proxy))
+        // Reverse proxy: /api/v1/{svc}/{path:path}. Axum 0.8 requires a
+        // catch-all parameter to be the only parameter in its route, so the
+        // handlers split the service name from the captured path.
+        .route("/api/v1/*path", any(proxy))
         // WebSocket proxy: /ws/{svc}/{path:path}
-        .route("/ws/{svc}/{*path}", get(ws_handler))
+        .route("/ws/*path", get(ws_handler))
         .layer(middleware::from_fn(move |req, next| {
             auth_middleware(axum::extract::State(st_auth.clone()), req, next)
         }))

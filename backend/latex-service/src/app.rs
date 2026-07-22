@@ -62,15 +62,15 @@ pub async fn run() -> anyhow::Result<()> {
     ed_observability::init_tracing("latex-service", true);
 
     let pool = sqlx::PgPool::connect(&cfg.database_url).await?;
-    sqlx::migrate!("packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+    sqlx::migrate!("../../packages/persistence-postgres/src/migrations").run(&pool).await.ok();
 
-    let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore::new(pool));
+    let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore { pool });
     let redis = deadpool_redis::Config::from_url(&cfg.redis_url)
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
     let cache = Cache::new(redis);
 
     let event_bus = ed_messaging_rabbitmq::RabbitEventBus::connect(
-        &cfg.rabbitmq_url,
+        &cfg.rabbit_url,
         ed_messaging_rabbitmq::Topology::default(),
     ).await?;
     let event_bus = Arc::new(event_bus) as Arc<dyn IEventBus>;

@@ -4,11 +4,7 @@
 //! `/api/v1/doc-service/ws/doc/{id}` relays ops to peers and persists
 //! them to the Postgres outbox. Background relay publishes to RabbitMQ.
 
-use axum::{
-    extract::State,
-    routing::{delete, get, post},
-    Json, Router,
-};
+use axum::{routing::get, Router};
 use ed_cache::Cache;
 use ed_messaging_rabbitmq::{IEventBus, OutboxRelayService};
 use sqlx::PgPool;
@@ -19,6 +15,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::Config;
 use crate::handlers::{create_document, delete_document, get_document, list_documents};
 use crate::ws::ws_handler;
+use crate::ws::DocHub;
 use ed_persistence_postgres::{EfOutboxStore, OutboxStore};
 
 #[derive(Clone)]
@@ -28,6 +25,7 @@ pub struct AppState {
     pub outbox: Arc<dyn OutboxStore>,
     pub event_bus: Arc<dyn IEventBus>,
     pub relay: Arc<OutboxRelayService>,
+    pub hub: DocHub,
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -35,15 +33,15 @@ pub async fn run() -> anyhow::Result<()> {
     ed_observability::init_tracing("doc-service", true);
 
     let pool = PgPool::connect(&cfg.database_url).await?;
-    sqlx::migrate!("packages/persistence-postgres/src/migrations").run(&pool).await.ok();
+    sqlx::migrate!("../../packages/persistence-postgres/src/migrations").run(&pool).await.ok();
 
-    let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore::new(pool.clone()));
+    let outbox: Arc<dyn OutboxStore> = Arc::new(EfOutboxStore { pool: pool.clone() });
     let redis = deadpool_redis::Config::from_url(&cfg.redis_url)
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
     let cache = Cache::new(redis);
 
     let event_bus = ed_messaging_rabbitmq::RabbitEventBus::connect(
-        &cfg.rabbitmq_url,
+        &cfg.rabbit_url,
         ed_messaging_rabbitmq::Topology::default(),
     )
     .await?;
@@ -61,17 +59,13 @@ pub async fn run() -> anyhow::Result<()> {
     let relay_clone = Arc::clone(&relay);
     tokio::spawn(async move { relay_clone.run().await; });
 
-    let app = AppState { pool: pool.clone(), cache, outbox: Arc::clone(&outbox), event_bus: Arc::clone(&event_bus), relay: Arc::clone(&relay) };
+    let app = AppState { pool: pool.clone(), cache, outbox: Arc::clone(&outbox), event_bus: Arc::clone(&event_bus), relay: Arc::clone(&relay), hub: DocHub::default() };
 
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/documents", get(list_documents).post(create_document))
         .route("/api/documents/{id}", get(get_document).delete(delete_document))
-        .route("/api/v1/doc-service/ws/doc/{id}",
-               get({
-                   let state = app.clone();
-                   move |Path(id), ws| ws_handler(State(state), Path(id), ws)
-               }))
+        .route("/api/v1/doc-service/ws/doc/{id}", get(ws_handler))
         .with_state(app.clone())
         .layer(TraceLayer::new_for_http());
 

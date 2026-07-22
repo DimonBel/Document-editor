@@ -39,3 +39,13 @@ impl From<sqlx::Error> for AppError { fn from(e: sqlx::Error) -> Self { AppError
 impl From<mongodb::error::Error> for AppError { fn from(e: mongodb::error::Error) -> Self { AppError::Infra(format!("mongo: {e}")) } }
 impl From<lapin::Error> for AppError { fn from(e: lapin::Error) -> Self { AppError::Broker(format!("lapin: {e}")) } }
 impl From<serde_json::Error> for AppError { fn from(e: serde_json::Error) -> Self { AppError::Internal(format!("json: {e}")) } }
+
+#[cfg(feature = "axum")]
+impl axum::response::IntoResponse for AppError {
+    fn into_response(self) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let status = http::StatusCode::from_u16(self.http_status())
+            .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+        (status, axum::Json(self.to_problem(None))).into_response()
+    }
+}

@@ -10,6 +10,6 @@ impl Config { pub fn from_env() -> Self { Self {
     port: env::var("PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080),
     database_url: env::var("DATABASE_URL").expect("DATABASE_URL"),
     redis_url: env::var("REDIS_URL").expect("REDIS_URL"),
-    rabbit_url: env::var("RABBITMQ_URL").expect("RABBITMQ_URL"),
+    rabbit_url: env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbit:5672/%2f".into()),
     service_name: "doc-service".into(),
 }}}

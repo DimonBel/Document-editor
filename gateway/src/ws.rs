@@ -19,9 +19,16 @@ use crate::state::AppState;
 
 pub async fn ws_handler(
     State(state): State<AppState>,
-    Path((svc, path)): Path<(String, String)>,
+    Path(captured_path): Path<String>,
     ws: WebSocketUpgrade,
 ) -> AppResult<Response> {
+    let (svc, path) = captured_path
+        .split_once('/')
+        .map(|(svc, path)| (svc.to_string(), path.to_string()))
+        .ok_or_else(|| AppError::NotFound {
+            what: "service path is missing".to_string(),
+        })?;
+
     let upstream = state
         .upstream(&svc)
         .ok_or_else(|| AppError::NotFound { what: format!("unknown service '{svc}'") })?;

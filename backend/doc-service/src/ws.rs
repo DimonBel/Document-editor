@@ -11,7 +11,7 @@ use axum::{
     },
     response::Response,
 };
-use futures::{SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ pub async fn ws_handler(
     Path(doc_id): Path<String>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let hub = DocHub::default();
+    let hub = state.hub.clone();
     let outbox = state.outbox.clone();
     ws.on_upgrade(move |socket| async move {
         run(socket, hub, outbox, doc_id).await;
@@ -75,17 +75,16 @@ async fn run(
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let drainer = tokio::spawn(async move {
-        while let Some(frame) = out_rx.recv().await {
-            let text = match serde_json::to_string(&frame) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            if ws_tx.send(Message::Text(text)).await.is_err() { break; }
-        }
-    });
-
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    loop {
+        let msg = tokio::select! {
+            Some(frame) = out_rx.recv() => {
+                let text = match serde_json::to_string(&frame) { Ok(s) => s, Err(_) => continue };
+                if ws_tx.send(Message::Text(text)).await.is_err() { break; }
+                continue;
+            }
+            message = ws_rx.next() => message,
+        };
+        let Some(Ok(msg)) = msg else { break; };
         match msg {
             Message::Text(s) => {
                 let Ok(frame) = serde_json::from_str::<WsFrame>(&s) else { continue };
@@ -93,7 +92,7 @@ async fn run(
                     use ed_contracts::{topics::document as DT, EventMessage};
                     let envelope = EventMessage::new(
                         DT::UPDATED, "doc.op",
-                        serde_json::json!({ "doc_id": doc_id, "frame": frame }),
+                        serde_json::json!({ "doc_id": doc_id, "frame": frame.clone() }),
                         "doc-service",
                     );
                     let _ = outbox.append(&ed_persistence_postgres::make_outbox(
@@ -108,5 +107,4 @@ async fn run(
         }
     }
     hub.unsubscribe(&doc_id, &out_tx);
-    drainer.abort();
 }

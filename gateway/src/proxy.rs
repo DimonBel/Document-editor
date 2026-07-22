@@ -15,7 +15,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -25,20 +24,21 @@ use crate::state::AppState;
 
 const MAX_BODY: usize = 16 * 1024 * 1024; // 16 MiB
 
-#[derive(Debug, Deserialize)]
-pub struct PathParams {
-    pub svc: String,
-    pub path: String,
-}
-
 pub async fn proxy(
     State(state): State<AppState>,
     method: Method,
-    Path(PathParams { svc, path }): Path<PathParams>,
+    Path(captured_path): Path<String>,
     Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Body,
 ) -> AppResult<Response> {
+    let (svc, path) = captured_path
+        .split_once('/')
+        .map(|(svc, path)| (svc.to_string(), path.to_string()))
+        .ok_or_else(|| AppError::NotFound {
+            what: "service path is missing".to_string(),
+        })?;
+
     let upstream = state
         .upstream(&svc)
         .ok_or_else(|| AppError::NotFound { what: format!("unknown service '{svc}'") })?;
