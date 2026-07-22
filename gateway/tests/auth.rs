@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use gateway::config::Config;
 use gateway::error::{AppError, ProblemDetails};
-use gateway::security::jwt::{issue_user_token, verify_internal_token, verify_token, KeyManager};
+use gateway::security::jwt::{issue_user_token, verify_internal_token, KeyManager};
 
 // ─── Config ────────────────────────────────────────────────────────────────
 #[test]
@@ -51,7 +51,7 @@ fn user_token_round_trip() {
     let km = KeyManager::new().unwrap();
     let token = issue_user_token(&km, "ed-gateway", "ed-services", "user-123",
         vec!["user".into()], vec!["rooms:read".into()], 60).unwrap();
-    let claims = verify_token(&token, "ed-gateway", "ed-services").unwrap();
+    let claims = km.verify(&token, "ed-gateway", "ed-services").unwrap();
     assert_eq!(claims.sub, "user-123");
     assert_eq!(claims.iss, "ed-gateway");
     assert_eq!(claims.aud, "ed-services");
@@ -64,7 +64,7 @@ fn token_rejected_with_wrong_audience() {
     let km = KeyManager::new().unwrap();
     let token = issue_user_token(&km, "ed-gateway", "ed-services", "u",
         vec![], vec![], 60).unwrap();
-    let res = verify_token(&token, "ed-gateway", "wrong-audience");
+    let res = km.verify(&token, "ed-gateway", "wrong-audience");
     assert!(res.is_err());
     let err = res.unwrap_err();
     assert!(matches!(err, AppError::Unauthorized(_)));
@@ -75,7 +75,7 @@ fn token_rejected_with_wrong_issuer() {
     let km = KeyManager::new().unwrap();
     let token = issue_user_token(&km, "ed-gateway", "ed-services", "u",
         vec![], vec![], 60).unwrap();
-    let res = verify_token(&token, "wrong-issuer", "ed-services");
+    let res = km.verify(&token, "wrong-issuer", "ed-services");
     assert!(res.is_err());
 }
 
@@ -89,7 +89,7 @@ fn token_rejected_when_tampered() {
     let replaced = if last.ends_with('A') { format!("{}B", &last[..last.len()-1]) } else { format!("{}A", &last[..last.len()-1]) };
     parts[2] = &replaced;
     let bad = parts.join(".");
-    let res = verify_token(&bad, "ed-gateway", "ed-services");
+    let res = km.verify(&bad, "ed-gateway", "ed-services");
     assert!(res.is_err());
 }
 
@@ -98,7 +98,7 @@ fn expired_token_rejected() {
     let km = KeyManager::new().unwrap();
     let token = issue_user_token(&km, "ed-gateway", "ed-services", "u",
         vec![], vec![], -10).unwrap();
-    let res = verify_token(&token, "ed-gateway", "ed-services");
+    let res = km.verify(&token, "ed-gateway", "ed-services");
     assert!(res.is_err());
 }
 

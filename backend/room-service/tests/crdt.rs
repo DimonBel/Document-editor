@@ -63,7 +63,7 @@ proptest! {
                 op: OpType::Insert { element: json!({"text": s}) },
             }
         }).collect();
-        a_replay: Vec<Operation> = {
+        let mut a_replay: Vec<Operation> = {
             let mut r = prepared.clone();
             r.reverse();
             r
