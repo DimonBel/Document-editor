@@ -47,6 +47,9 @@ pub async fn run() -> anyhow::Result<()> {
         ed_messaging_rabbitmq::Topology::default(),
     )
     .await?;
+    if let Err(e) = event_bus.install_basic_return_handler().await {
+        tracing::warn!(error = %e, "basic-return handler install failed (#214)");
+    }
     let event_bus = Arc::new(event_bus) as Arc<dyn IEventBus>;
     let relay = Arc::new(OutboxRelayService {
         store: Arc::clone(&outbox) as Arc<dyn ed_persistence_postgres::OutboxStore>,

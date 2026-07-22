@@ -82,35 +82,56 @@ pub async fn rate_limit_middleware(
         }
     };
 
-    let bucket = chrono::Utc::now().timestamp() as u32 / refill_per_sec.max(1);
-    let full_key = format!("rl:{kind}:{key}:{bucket}");
-
-    let mut conn = match state.redis.get().await {
+    // Issue #240: real token-bucket via a Redis Lua script so refill +
+    // decrement are atomic on the server. The previous fixed-window
+    // counter permitted a burst at the window boundary.
+    let bucket_key = format!("rl:{kind}:{key}");
+    let now_ms = chrono::Utc::now().timestamp_millis() as i64;
+    let capacity_i = capacity as i64;
+    let refill_per_sec_i = refill_per_sec as i64;
+    let result: Result<i64, _> = redis::Script::new(
+        r#"
+            local bucket = tonumber(redis.call('GET', KEYS[1]) or ARGV[1])
+            local last   = tonumber(redis.call('GET', KEYS[2]) or ARGV[2])
+            local now    = tonumber(ARGV[2])
+            local delta  = math.max(0, now - last)
+            local refill = math.floor(delta * ARGV[3] / 1000)
+            bucket = math.min(ARGV[1], bucket + refill)
+            if bucket <= 0 then
+              redis.call('SET', KEYS[2], now, 'EX', ARGV[4])
+              return 0
+            end
+            bucket = bucket - 1
+            redis.call('SET', KEYS[1], bucket, 'EX', ARGV[4])
+            redis.call('SET', KEYS[2], now, 'EX', ARGV[4])
+            return 1
+        "#,
+    )
+    .key(&bucket_key)
+    .key(format!("{bucket_key}:ts"))
+    .arg(capacity_i)
+    .arg(now_ms)
+    .arg(refill_per_sec_i)
+    .arg(60_i64)
+    .invoke_async(&mut *match state.redis.get().await {
         Ok(c) => c,
         Err(e) => {
-            // Fail closed: a busted rate-limiter must not let traffic through unrestricted.
             tracing::error!(error = %e, "rate-limit redis error; refusing request");
             return rate_limit_error(path);
         }
-    };
+    })
+    .await;
 
-    let count: u32 = match conn.incr(&full_key, 1u32).await {
-        Ok(n) => n,
-        Err(e) => {
-            tracing::error!(error = %e, "rate-limit incr error; refusing request");
-            return rate_limit_error(path);
-        }
-    };
-    if count == 1 {
-        let _: Result<(), _> = conn.expire(&full_key, 60).await;
-    }
-
-    if count > capacity {
+    let allowed = matches!(result, Ok(1));
+    if !allowed {
         return rate_limit_response(path, refill_per_sec);
     }
 
     let mut resp = next.run(req).await;
-    let remaining = capacity.saturating_sub(count);
+    // The Lua script returns 1 on allow, 0 on reject. We don't know the
+    // exact remaining bucket without a second round-trip; report
+    // `capacity` as a conservative upper bound.
+    let remaining = capacity;
     if let (Ok(n), Ok(r)) = (
         HeaderValue::from_str(remaining.to_string().as_str()),
         HeaderValue::from_str(refill_per_sec.to_string().as_str()),

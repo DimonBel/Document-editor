@@ -9,6 +9,7 @@ ed-contracts = { workspace = true }
 ed-errors = { workspace = true }
 ed-persistence-postgres = { workspace = true }
 lapin = { workspace = true }
+futures-util = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

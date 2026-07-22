@@ -53,7 +53,7 @@ bson = { version = "2", features = ["chrono-0_4", "uuid-1"] }
 
 # Cache / rate limit
 deadpool-redis = "0.18"
-redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio"] }
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio", "script"] }
 
 # Messaging
 lapin = "2.5"

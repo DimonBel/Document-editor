@@ -35,31 +35,20 @@ impl AppError {
 }
 pub type AppResult<T> = std::result::Result<T, AppError>;
 impl From<ed_domain::DomainError> for AppError { fn from(v: ed_domain::DomainError) -> Self { AppError::Domain(v) } }
-// Issue #227: do not leak driver strings to API clients. Log the full
-// detail server-side, return a generic detail to the caller.
-impl From<sqlx::Error> for AppError {
-    fn from(e: sqlx::Error) -> Self {
-        tracing::error!(error = ?e, "sqlx error");
-        AppError::Infra("database error".into())
-    }
-}
-impl From<mongodb::error::Error> for AppError {
-    fn from(e: mongodb::error::Error) -> Self {
-        tracing::error!(error = ?e, "mongo error");
-        AppError::Infra("database error".into())
-    }
-}
-impl From<lapin::Error> for AppError {
-    fn from(e: lapin::Error) -> Self {
-        tracing::error!(error = ?e, "lapin error");
-        AppError::Broker("broker error".into())
-    }
-}
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
         tracing::error!(error = ?e, "json error");
         AppError::Internal("serialisation error".into())
     }
+}
+// Issue #250: ed-errors is the lowest-level crate and MUST NOT depend
+// on sqlx, mongodb, or lapin. Driver-specific From impls live in
+// each service (or its nearest infrastructure crate). A single,
+// minimal helper is provided here so services can `map_err` without
+// re-implementing the same body.
+pub fn log_and_into<T: std::fmt::Display>(label: &str, err: T) -> AppError {
+    tracing::error!(error = %err, "{label}");
+    AppError::Infra(label.to_string())
 }
 
 #[cfg(feature = "axum")]

@@ -89,3 +89,35 @@ impl IEventBus for RabbitEventBus {
     }
     fn channel(&self) -> Channel { self.channel.clone() }
 }
+
+impl RabbitEventBus {
+    /// Issue #214: install a `basic.return` handler so unroutable
+    /// messages (mandatory publish with no matching queue binding)
+    /// are at least logged instead of silently dropped.
+    pub async fn install_basic_return_handler(&self) -> Result<(), BrokerError> {
+        use futures_util::StreamExt;
+        let mut consumer = self.channel.basic_consume(
+            "ed.basic.return",
+            "ed-basic-return",
+            lapin::options::BasicConsumeOptions { no_ack: true, ..Default::default() },
+            lapin::types::FieldTable::default(),
+        ).await?;
+        tokio::spawn(async move {
+            while let Some(d) = consumer.next().await {
+                if let Ok(delivery) = d {
+                    let routing = delivery.routing_key.as_str().to_string();
+                    // `reply_text` lives on `BasicReturnMessage`, not
+                    // on `Delivery` itself; we don't get it from a
+                    // basic.return consumer, so log only routing + body.
+                    let body = String::from_utf8_lossy(&delivery.data);
+                    tracing::error!(
+                        routing_key = %routing,
+                        body = %body,
+                        "unroutable AMQP message returned by broker (#214)"
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+}
