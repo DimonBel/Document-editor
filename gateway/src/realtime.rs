@@ -166,7 +166,17 @@ pub async fn start_rabbit_consumer(state: AppState) -> anyhow::Result<()> {
     let conn = Connection::connect(&state.rabbit_url, ConnectionProperties::default()).await?;
     let channel = conn.create_channel().await?;
 
-    // Declare a fanout-style exchange just for SSE delivery
+    // Declare the durable event exchange used by the service outbox relays.
+    channel
+        .exchange_declare(
+            "ed.events",
+            ExchangeKind::Topic,
+            ExchangeDeclareOptions { durable: true, ..Default::default() },
+            FieldTable::default(),
+        )
+        .await?;
+
+    // Declare a topic exchange for SSE delivery.
     channel
         .exchange_declare(
             "ed.realtime",

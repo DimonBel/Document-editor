@@ -1,0 +1,16 @@
+# Keep local build artifacts and repository metadata out of Docker contexts.
+target/
+.git/
+.github/
+.issues/
+docs/
+tools/
+
+# Frontend dependencies/build output are rebuilt inside its own image.
+frontend/node_modules/
+frontend/dist/
+
+# Local/editor files.
+**/.DS_Store
+**/.idea/
+**/.vscode/

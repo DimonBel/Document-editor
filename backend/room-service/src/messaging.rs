@@ -7,6 +7,7 @@
 //! the whole subscriber with no telemetry.
 
 use std::sync::Arc;
+use std::future::Future;
 
 use async_trait::async_trait;
 use lapin::{message::Delivery, Channel};
@@ -90,6 +91,7 @@ impl ConsumerSupervisor {
 /// Consumes the channel errors and re-publishes them as `tracing`
 /// events instead of letting them take the task down.
 pub fn observe_panic(context: &str) {
+    let context = context.to_string();
     std::panic::set_hook(Box::new(move |info| {
         error!(%context, panic = %info, "consumer task panicked");
     }));

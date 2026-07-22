@@ -103,16 +103,13 @@ Prerequisites: **Docker** (with Compose v2) and **~8 GB of free RAM**.
 git clone https://github.com/DimonBel/Document-editor
 cd Document-editor
 
-# 2. (Optional) copy the env template
-cp infra/.env.example infra/.env
+# 2. Build and bring up the whole stack
+docker compose up -d --build
 
-# 3. Bring up the whole stack
-docker compose -f infra/docker-compose.yml up -d
+# 3. Tail logs
+docker compose logs -f
 
-# 4. Tail logs
-docker compose -f infra/docker-compose.yml logs -f
-
-# 5. Verify
+# 4. Verify
 curl http://localhost:8080/healthz                                  # gateway
 curl http://localhost:15672  -u guest:guest                        # RabbitMQ UI
 xdg-open http://localhost:5173                                      # SPA
@@ -121,13 +118,13 @@ xdg-open http://localhost:5173                                      # SPA
 To **tear down** (keep volumes):
 
 ```bash
-docker compose -f infra/docker-compose.yml down
+docker compose down
 ```
 
 To **tear down and reset data**:
 
 ```bash
-docker compose -f infra/docker-compose.yml down -v
+docker compose down -v
 ```
 
 ### What's running, and where
@@ -135,14 +132,14 @@ docker compose -f infra/docker-compose.yml down -v
 | Service          | Internal port | Host port | Notes                                      |
 |------------------|---------------|-----------|--------------------------------------------|
 | `frontend`       | 80            | 5173      | Vite SPA, nginx in production              |
-| `gateway`        | 8080          | 8080      | FastAPI; auth, reverse-proxy, WS proxy     |
+| `gateway`        | 8080          | 8080      | Rust auth, reverse-proxy, WS proxy         |
 | `room-service`   | 8080          | --        | Reachable via the gateway                  |
 | `doc-service`    | 8080          | --        | Reachable via the gateway                  |
 | `latex-service`  | 8080          | --        | Reachable via the gateway                  |
-| `postgres`       | 5432          | 5432      | `ed / ed`                                 |
-| `mongo`          | 27017         | 27017     | DB `ed`                                   |
-| `redis`          | 6379          | 6379      | cache + rate-limit + idempotency           |
-| `rabbit`         | 5672          | 5672      | AMQP; mgmt UI on 15672 (guest / guest)     |
+| `postgres`       | 5432          | --        | Internal database (`ed / ed`)             |
+| `mongo`          | 27017         | --        | Internal database `ed`                    |
+| `redis`          | 6379          | --        | Internal cache/rate-limit                 |
+| `rabbit`         | 5672          | --        | Internal AMQP; UI on 15672 (guest / guest) |
 
 ---
 

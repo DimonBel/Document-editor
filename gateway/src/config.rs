@@ -37,7 +37,7 @@ impl Config {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://ed:ed@postgres:5432/ed".into());
         let mongo_url = env::var("MONGO_URL").unwrap_or_else(|_| "mongodb://mongo:27017/ed".into());
         let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".into());
-        let rabbitmq_url = env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbit:5672/".into());
+        let rabbitmq_url = env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbit:5672/%2f".into());
         let jwt_issuer = env::var("JWT_ISSUER").unwrap_or_else(|_| "ed-gateway".into());
         let jwt_audience = env::var("JWT_AUDIENCE").unwrap_or_else(|_| "ed-services".into());
         let jwks_url = env::var("JWKS_URL").unwrap_or_else(|_| "http://gateway:8080/.well-known/jwks.json".into());

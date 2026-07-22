@@ -3,6 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use bson::doc;
 use crate::error::MongoError;
 use crate::mongo_db::MongoDb;
+#[derive(Clone)]
 pub struct MongoRepo<T: Serialize + DeserializeOwned + Send + Sync + 'static> {
     pub db: MongoDb, _phantom: std::marker::PhantomData<T>,
 }

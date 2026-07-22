@@ -3,5 +3,5 @@ use ed_observability::init_tracing;
 async fn main() -> anyhow::Result<()> {
     init_tracing("room-service", true);
     tracing::info!("room-service starting");
-    backend_room_service::app::run().await
+    room_service::app::run().await
 }

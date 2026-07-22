@@ -5,7 +5,7 @@ pub fn init_tracing(service_name: &str, json: bool) {
     INIT.call_once(|| {
         let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ed_*=debug"));
         let fmt_layer = if json { tracing_subscriber::fmt::layer().json().boxed() } else { tracing_subscriber::fmt::layer().boxed() };
-        let filter_svc = EnvFilter::new(format!("info,ed_={}", service_name));
+        let filter_svc = EnvFilter::new(format!("info,{}=debug", service_name.replace('-', "_")));
         let svc_layer = tracing_subscriber::fmt::layer().with_filter(filter_svc).boxed();
         tracing_subscriber::registry().with(env_filter).with(fmt_layer).with(svc_layer).init();
     });

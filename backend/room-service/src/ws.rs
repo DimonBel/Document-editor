@@ -19,7 +19,7 @@ use axum::{
     },
     response::Response,
 };
-use futures::{SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -98,18 +98,18 @@ async fn run(
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     // Drainer: hub -> WS.
-    let drainer = tokio::spawn(async move {
-        while let Some(frame) = out_rx.recv().await {
-            let text = match serde_json::to_string(&frame) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            if ws_tx.send(Message::Text(text)).await.is_err() { break; }
-        }
-    });
-
-    // Reader: parse inbound frames; broadcast to peers; persist Ops.
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    // Process hub messages and client messages on one task so the WebSocket
+    // sink is never moved into a competing writer task.
+    loop {
+        let msg = tokio::select! {
+            Some(frame) = out_rx.recv() => {
+                let text = match serde_json::to_string(&frame) { Ok(s) => s, Err(_) => continue };
+                if ws_tx.send(Message::Text(text)).await.is_err() { break; }
+                continue;
+            }
+            message = ws_rx.next() => message,
+        };
+        let Some(Ok(msg)) = msg else { break; };
         match msg {
             Message::Text(s) => {
                 let Ok(frame) = serde_json::from_str::<WsFrame>(&s) else { continue };
@@ -118,7 +118,7 @@ async fn run(
                         use ed_contracts::{topics::room as RT, EventMessage};
                         let envelope = EventMessage::new(
                             RT::UPDATED, "room.op",
-                            serde_json::json!({ "room_id": room_id, "frame": frame }),
+                            serde_json::json!({ "room_id": room_id, "frame": frame.clone() }),
                             "room-service",
                         );
                         let _ = outbox.append(&ed_persistence_postgres::make_outbox(
@@ -135,5 +135,4 @@ async fn run(
         }
     }
     hub.unsubscribe(&room_id, &out_tx);
-    drainer.abort();
 }

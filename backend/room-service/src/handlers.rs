@@ -16,8 +16,12 @@ use ed_cache::Cache;
 use ed_domain::{DomainError, Room, UserId};
 use ed_errors::AppError;
 use ed_persistence_mongo::{AuditFields, MongoRepo, CollectionName};
+use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
+
+use crate::ws::RoomHub;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomDoc {
@@ -37,6 +41,8 @@ impl CollectionName for RoomDoc {
 pub struct RoomAppState {
     pub repo: MongoRepo<RoomDoc>,
     pub cache: Cache,
+    pub hub: RoomHub,
+    pub outbox: Arc<dyn ed_persistence_postgres::OutboxStore>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +51,7 @@ pub struct CreateRoomIn {
     pub created_by: Uuid,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RoomOut {
     pub id: Uuid,
     pub name: String,
@@ -75,6 +81,9 @@ pub async fn list_rooms(
         .collection()
         .find(bson::doc! {})
         .limit(200)
+        .await
+        .map_err(|e| AppError::Internal(format!("mongo: {e}")))?
+        .try_collect()
         .await
         .map_err(|e| AppError::Internal(format!("mongo: {e}")))?;
     let out: Vec<RoomOut> = rooms.iter().map(RoomOut::from).collect();
@@ -115,7 +124,7 @@ pub async fn get_room(
         .find_one(bson::doc! { "_id": id.to_string() })
         .await
         .map_err(|e| AppError::Internal(format!("mongo: {e}")))?
-        .ok_or_else || AppError::NotFound { what: format!("room {id}") };
+        .ok_or_else(|| AppError::NotFound)?;
     Ok(Json(RoomOut::from(&doc)))
 }
 
@@ -128,7 +137,7 @@ pub async fn delete_room(
         .await
         .map_err(|e| AppError::Internal(format!("mongo: {e}")))?;
     if exists.is_none() {
-        return Err(AppError::NotFound { what: format!("room {id}") });
+        return Err(AppError::NotFound);
     }
     state.repo.soft_delete(&id.to_string()).await
         .map_err(|e| AppError::Internal(format!("mongo: {e}")))?;

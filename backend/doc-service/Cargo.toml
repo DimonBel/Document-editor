@@ -11,7 +11,7 @@ path = "src/main.rs"
 [dependencies]
 ed-domain = { workspace = true }
 ed-contracts = { workspace = true }
-ed-errors = { workspace = true }
+ed-errors = { workspace = true, features = ["axum"] }
 ed-observability = { workspace = true }
 ed-auth = { workspace = true }
 ed-cache = { workspace = true }
@@ -28,3 +28,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+deadpool-redis = { workspace = true }
+futures-util = { workspace = true }
+parking_lot = { workspace = true }
+sqlx = { workspace = true }
