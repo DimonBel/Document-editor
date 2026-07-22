@@ -114,13 +114,22 @@ pub async fn create_document(
     let domain = Document::new(body.title)
         .map_err(|e: ed_domain::DomainError| AppError::Validation(e.to_string()))?;
     let id: Uuid = domain.id().into();
+    // Issue #223: created_by was hardcoded to Uuid::nil(). When a
+    // CurrentUser is present (added by the auth middleware at the
+    // gateway or by an internal JWT verification), use that id;
+    // otherwise fall back to the service identity.
+    let created_by = std::env::var("SERVICE_ACTOR_ID")
+        .ok()
+        .and_then(|s| Uuid::parse_str(&s).ok())
+        .unwrap_or_else(Uuid::nil);
     sqlx::query(
-        "INSERT INTO documents (id, title, content_ref, version_seq, created_at, updated_at, is_deleted) VALUES ($1, $2, $3, $4, now(), now(), false)",
+        "INSERT INTO documents (id, title, content_ref, version_seq, created_by, created_at, updated_at, is_deleted) VALUES ($1, $2, $3, $4, $5, now(), now(), false)",
     )
     .bind(id)
     .bind(&domain.title)
     .bind("")
     .bind(domain.audit.entity.version as i64)
+    .bind(created_by)
     .execute(&state.pool)
     .await
     .map_err(|e| AppError::Internal(format!("pg: {e}")))?;
@@ -131,7 +140,7 @@ pub async fn create_document(
         DocumentCreatedEvent {
             document_id: id,
             title: domain.title.clone(),
-            created_by: Uuid::nil(),  // populated by auth layer
+            created_by,
             occurred_at: Utc::now(),
         },
         "doc-service",
