@@ -63,6 +63,14 @@ pub async fn idempotency_middleware(
         .map(|u| format!("user:{}", u.id))
         .unwrap_or_else(|| "anon".to_string());
     let path = req.uri().path().to_string();
+    let method = req.method().as_str().to_string();
+    let query = req.uri().query().unwrap_or("").to_string();
+    let content_type = req
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
 
     // Consume the request so we can hash the body into the cache key.
     let (parts, body) = req.into_parts();
@@ -83,7 +91,10 @@ pub async fn idempotency_middleware(
         .map(|b| format!("{b:02x}"))
         .collect();
 
-    let redis_key = format!("idem:{principal}:{path}:{key}:{body_hash}");
+    // Issue #255: include method + query + content-type so a
+    // (token, POST /x?y=1) is not replayed as (token, POST /x?y=2),
+    // and the same key isn't reused across content-types.
+    let redis_key = format!("idem:{principal}:{method}:{path}:{query}:{key}:{content_type}:{body_hash}");
     let req = Request::from_parts(parts, Body::from(body_bytes.clone()));
 
     // Cache hit?

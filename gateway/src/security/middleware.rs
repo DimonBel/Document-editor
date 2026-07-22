@@ -60,12 +60,18 @@ pub async fn auth_middleware(
         .headers()
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
+        .and_then(|s| {
+            // Issue #254: accept case-insensitive `Bearer` / `bearer`.
+            let lower = s.to_ascii_lowercase();
+            if lower.starts_with("bearer ") {
+                Some(s[7..].to_string())
+            } else { None }
+        })
         .ok_or_else(|| AppError::Unauthorized("missing bearer token".into()))?;
 
     let claims: Claims = state
         .keys
-        .verify(token, &state.config.jwt_issuer, &state.config.jwt_audience)?;
+        .verify(&token, &state.config.jwt_issuer, &state.config.jwt_audience)?;
 
     let id = uuid::Uuid::parse_str(&claims.sub)
         .map_err(|_| AppError::Unauthorized("sub is not a UUID".into()))?;

@@ -103,19 +103,18 @@ impl RefreshTokenStore {
         let token = random_token();
         let mut conn = self.redis.get().await
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
-        let key = format!("refresh:{token}");
+        // Issue #251: never use the raw token as the Redis key. A
+        // database dump leaks all active sessions; hash with SHA-256
+        // and use the prefix `refresh:` + hash as the lookup key.
+        let key = format!("refresh:{}", sha256_hex(&token));
         let _: () = conn.set_ex(&key, user_id, 60 * 60 * 24 * 30).await
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
         Ok(token)
     }
     pub async fn consume(&self, token: &str) -> Result<Option<String>, AppError> {
-        // Issue #206: GET-then-DEL was two round-trips and not atomic -- two
-        // concurrent rotations could both observe the token and reuse the
-        // same jti. Use the GETDEL command (Redis 6.2+) for a single
-        // atomic read+delete.
         let mut conn = self.redis.get().await
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
-        let key = format!("refresh:{token}");
+        let key = format!("refresh:{}", sha256_hex(token));
         let user_id: Option<String> = redis::cmd("GETDEL")
             .arg(&key)
             .query_async(&mut *conn)
@@ -123,6 +122,13 @@ impl RefreshTokenStore {
             .map_err(|e| AppError::Internal(format!("redis: {e}")))?;
         Ok(user_id)
     }
+}
+
+fn sha256_hex(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    hex::encode(h.finalize())
 }
 
 fn random_token() -> String {
