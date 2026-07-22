@@ -27,6 +27,18 @@ pub struct CurrentUser {
 impl CurrentUser {
     pub fn has_role(&self, r: &str) -> bool { self.roles.iter().any(|x| x == r) }
     pub fn has_scope(&self, s: &str) -> bool { self.scopes.iter().any(|x| x == s) }
+    /// Returns true iff this user has any of the given scopes. Issue #218:
+    /// callers were previously not invoking these helpers at all.
+    pub fn has_any_scope(&self, scopes: &[&str]) -> bool {
+        scopes.iter().any(|s| self.has_scope(s))
+    }
+}
+
+/// Helper for handlers / downstream middleware that need to enforce a
+/// scope on the request. Returns `Forbidden` if the user lacks it.
+pub fn require_scope(user: &CurrentUser, scope: &str) -> Result<(), AppError> {
+    if user.has_scope(scope) { Ok(()) }
+    else { Err(AppError::Forbidden(format!("missing required scope: {scope}"))) }
 }
 
 pub async fn auth_middleware(
