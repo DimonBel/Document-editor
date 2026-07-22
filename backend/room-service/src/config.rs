@@ -10,15 +10,23 @@ pub struct Config {
     pub service_name: String,
 }
 impl Config {
-    pub fn from_env() -> Self {
-        Self {
-            host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
-            port: env::var("PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080),
-            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://ed:ed@postgres:5432/ed".into()),
-            mongo_url: env::var("MONGO_URL").unwrap_or_else(|_| "mongodb://mongo:27017/ed".into()),
-            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".into()),
-            rabbit_url: env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbit:5672/%2f".into()),
+    /// #242: refuse to start with hardcoded DSN fallbacks. Operators
+    /// MUST supply URLs (compose passes them, local devs should use
+    /// `.env`); a missing var is a fatal startup error.
+    pub fn from_env() -> anyhow::Result<Self> {
+        let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
+        let port: u16 = env::var("PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080);
+        let database_url = env::var("DATABASE_URL")
+            .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?;
+        let mongo_url = env::var("MONGO_URL")
+            .map_err(|_| anyhow::anyhow!("MONGO_URL must be set"))?;
+        let redis_url = env::var("REDIS_URL")
+            .map_err(|_| anyhow::anyhow!("REDIS_URL must be set"))?;
+        let rabbit_url = env::var("RABBITMQ_URL")
+            .map_err(|_| anyhow::anyhow!("RABBITMQ_URL must be set"))?;
+        Ok(Self {
+            host, port, database_url, mongo_url, redis_url, rabbit_url,
             service_name: "room-service".into(),
-        }
+        })
     }
 }

@@ -1,6 +1,7 @@
 //! Build the `axum::Router` for the gateway.
 
 use axum::{
+    http::{header, Method},
     middleware,
     routing::{any, get, post},
     Router,
@@ -21,13 +22,25 @@ use crate::state::AppState;
 use crate::ws::ws_handler;
 
 pub fn build_router(state: AppState) -> Router {
-    // Pre-clone `AppState` so each closure can move its own
-    // owned copy (axum's `from_fn` requires `Fn` + `Send +
-    // 'static`, and `move` closures capture by value). The
-    // original `state` is reserved for `with_state` at the end.
     let st_auth = state.clone();
     let st_rate = state.clone();
     let st_idem = state.clone();
+
+    // Issue #243: replace CorsLayer::permissive() with a constrained
+    // allowlist sourced from `GATEWAY_ALLOWED_ORIGINS` (comma-separated).
+    // Local dev defaults to `http://localhost:5173` (Vite) and the SPA
+    // hostnames.
+    let allowed_origins = std::env::var("GATEWAY_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:5173,http://localhost:8080".into());
+    let origins: Vec<axum::http::HeaderValue> = allowed_origins
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    let cors = CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_credentials(true);
 
     Router::new()
         // Public
@@ -57,7 +70,7 @@ pub fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(correlation_middleware))
         .layer(middleware::from_fn(logging_middleware))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(state)
 }
 
