@@ -83,6 +83,7 @@ pub async fn run() -> anyhow::Result<()> {
         batch_size: 50,
         max_attempts: 5,
         backoff_base_ms: 500,
+        lease_secs: 60,
         backoff_max_ms: 60_000,
         relay_id: format!("latex-service@{}", uuid::Uuid::new_v4()),
     });

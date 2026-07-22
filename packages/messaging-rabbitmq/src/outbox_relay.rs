@@ -11,6 +11,9 @@ pub struct OutboxRelayService {
     pub poll_interval: Duration,
     pub batch_size: i64,
     pub max_attempts: i32,
+    /// Issue #215: this is now correctly named in SECONDS, not
+    /// milliseconds. The lease is `lease_secs` long.
+    pub lease_secs: i64,
     pub backoff_base_ms: i64,
     pub backoff_max_ms: i64,
     /// Per-replica identifier so the `leased_to` column on the
@@ -33,7 +36,7 @@ impl OutboxRelayService {
         // with `leased_to = relay_id` and a fresh lease.
         let claimed = self
             .store
-            .claim_pending(self.batch_size, self.backoff_base_ms, &self.relay_id)
+            .claim_pending(self.batch_size, self.lease_secs, &self.relay_id)
             .await?;
         if claimed.is_empty() {
             return Ok(());
