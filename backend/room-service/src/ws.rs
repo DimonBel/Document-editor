@@ -17,14 +17,18 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
+use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use uuid::Uuid;
 
 use crate::handlers::RoomAppState;
 
@@ -40,6 +44,9 @@ pub enum WsFrame {
 #[derive(Default, Clone)]
 pub struct RoomHub {
     inner: Arc<Mutex<HashMap<String, Vec<UnboundedSender<WsFrame>>>>>,
+    /// Last activity timestamp per room (issue #249). Used by the
+    /// janitor task to evict idle rooms.
+    last_seen: Arc<Mutex<HashMap<String, DateTime<Utc>>>>,
 }
 impl RoomHub {
     /// Register a new subscriber and return its sender. The
@@ -53,6 +60,8 @@ impl RoomHub {
             .entry(room.to_string())
             .or_default()
             .push(tx.clone());
+        // Mark this room as active for the janitor (#249).
+        self.last_seen.lock().insert(room.to_string(), Utc::now());
         // Drop the local receiver; the consumer task will create
         // its own with `mpsc::unbounded_channel`.
         tx
@@ -66,21 +75,53 @@ impl RoomHub {
     }
     pub fn broadcast(&self, room: &str, msg: WsFrame) {
         if let Some(subs) = self.inner.lock().get(room) {
+            self.last_seen.lock().insert(room.to_string(), Utc::now());
             for s in subs { let _ = s.send(msg.clone()); }
         }
+    }
+    /// Evict idle rooms (issue #249). Called from a janitor task.
+    pub fn evict_idle(&self, ttl: Duration) -> usize {
+        let now = Utc::now();
+        let cutoff = now - chrono::Duration::from_std(ttl).unwrap_or(chrono::Duration::seconds(60));
+        let mut evicted = 0;
+        let mut g = self.inner.lock();
+        let mut l = self.last_seen.lock();
+        let stale: Vec<String> = l
+            .iter()
+            .filter_map(|(k, ts)| if *ts < cutoff { Some(k.clone()) } else { None })
+            .collect();
+        for k in stale {
+            g.remove(&k);
+            l.remove(&k);
+            evicted += 1;
+        }
+        evicted
     }
 }
 
 pub async fn ws_handler(
     State(state): State<RoomAppState>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<Uuid>,
     ws: WebSocketUpgrade,
 ) -> Response {
     let hub = state.hub.clone();
     let outbox = state.outbox.clone();
     ws.on_upgrade(move |socket| async move {
-        run(socket, hub, outbox, room_id).await;
+        run(socket, hub, outbox, room_id.to_string()).await;
     })
+}
+
+/// Reject WS upgrades whose room id is not a UUID (issue #241).
+pub async fn ws_handler_validate(
+    Path(room_id): Path<String>,
+) -> Response {
+    if uuid::Uuid::parse_str(&room_id).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("invalid room id (expected UUID): {room_id}"),
+        ).into_response();
+    }
+    (StatusCode::OK, "ok").into_response()
 }
 
 async fn run(

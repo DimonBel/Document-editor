@@ -130,8 +130,16 @@ pub async fn proxy(
         }
     }
     response_headers.insert("X-Correlation-Id", HeaderValue::from_str(&cid).unwrap());
+    // Issue #209: cap the upstream body read at MAX_BODY (16 MiB) to
+    // avoid OOM on runaway upstream responses.
     let body = upstream_resp.bytes().await
         .map_err(|e| AppError::Upstream(format!("body read: {e}")))?;
+    if body.len() > MAX_BODY {
+        return Err(AppError::Upstream(format!(
+            "upstream response too large: {} bytes (cap {})",
+            body.len(), MAX_BODY
+        )));
+    }
 
     tracing::info!(
         method = %method, svc = %svc, path = %path, status = %status, headers = header_count,
