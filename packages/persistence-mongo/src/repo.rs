@@ -15,9 +15,16 @@ impl<T: Serialize + DeserializeOwned + Send + Sync + crate::conventions::Collect
     }
     pub async fn insert(&self, doc: &T) -> Result<(), MongoError> { self.collection().insert_one(doc).await?; Ok(()) }
     pub async fn replace(&self, id: &str, doc: &T) -> Result<(), MongoError> { self.collection().replace_one(doc! { "_id": id }, doc).await?; Ok(()) }
-    pub async fn soft_delete(&self, id: &str) -> Result<(), MongoError> {
+    pub async fn soft_delete(&self, id: &str) -> Result<bool, MongoError> {
         let now = bson::DateTime::now();
-        self.collection().update_one(doc! { "_id": id }, doc! { "$set": { "is_deleted": true, "deleted_at": now, "updated_at": now } }).await?;
-        Ok(())
+        // Issue #228: only set deleted_at on the FIRST soft-delete (so a
+        // repeated call doesn't reset the timestamp). Filter on
+        // `is_deleted: false` so the update is a no-op when already
+        // deleted, returning `Ok(false)` to the caller.
+        let res = self.collection().update_one(
+            doc! { "_id": id, "is_deleted": false },
+            doc! { "$set": { "is_deleted": true, "deleted_at": now, "updated_at": now } },
+        ).await?;
+        Ok(res.modified_count > 0)
     }
 }

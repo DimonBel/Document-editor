@@ -14,5 +14,6 @@ ed-domain = { workspace = true }
 sqlx = { workspace = true }
 mongodb = { workspace = true }
 lapin = { workspace = true }
+tracing = { workspace = true }
 axum = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
