@@ -9,7 +9,8 @@ last backing service is Rust.
 > **TL;DR** -- `docker compose -f infra/docker-compose.yml up` brings up the
 > whole stack. Frontend on http://localhost:5173, gateway on
 > http://localhost:8080, RabbitMQ management UI on http://localhost:15672
-> (guest / guest).
+> (bind to 127.0.0.1 by default; use `room-service` / `ed` etc. for service
+> accounts, see `infra/docker/rabbit/definitions.json`).
 
 ---
 
@@ -47,7 +48,7 @@ last backing service is Rust.
 
 - **`packages/`** -- 9 reusable Rust crates (the "DULL" services).
 - **`backend/`** -- 3 thin Rust binaries that compose packages.
-- **`gateway/`** -- Python FastAPI: auth issuer, reverse-proxy, WS proxy.
+- **`gateway/`** -- Rust (axum): auth issuer, reverse-proxy, WS proxy, rate-limit, idempotency, SSE fanout.
 - **`infra/`** -- docker-compose, Dockerfiles, RabbitMQ topology, `.env`.
 - **`frontend/`** -- unchanged (proxies `/api` & `/ws` to the gateway).
 
@@ -139,7 +140,7 @@ docker compose down -v
 | `postgres`       | 5432          | --        | Internal database (`ed / ed`)             |
 | `mongo`          | 27017         | --        | Internal database `ed`                    |
 | `redis`          | 6379          | --        | Internal cache/rate-limit                 |
-| `rabbit`         | 5672          | --        | Internal AMQP; UI on 15672 (guest / guest) |
+| `rabbit`         | 5672          | --        | Internal AMQP; UI on 127.0.0.1:15672     |
 
 ---
 
@@ -264,7 +265,7 @@ A full template lives at `infra/.env.example`.
 - **Restart one service**: `docker compose -f infra/docker-compose.yml restart <service>`
 - **Rebuild one service**: `docker compose -f infra/docker-compose.yml build <service>`
 - **Reset all state**: `docker compose -f infra/docker-compose.yml down -v`
-- **Open RabbitMQ management UI**: http://localhost:15672 (guest/guest)
+- **Open RabbitMQ management UI**: http://127.0.0.1:15672 (`room-service`/`ed`)
 - **Open Postgres**: `psql -h localhost -U ed ed`  (password `ed`)
 - **Open Mongo**: `mongosh "mongodb://localhost:27017/ed"`
 - **Open Redis**: `redis-cli`
@@ -279,7 +280,7 @@ milestone:
 
 - `M0 Foundations` -- reusable crates
 - `M1 Containers`  -- docker-compose, Dockerfiles, RabbitMQ topology
-- `M2 Gateway`     -- Python FastAPI reverse-proxy + auth
+- `M2 Gateway`     -- Rust (axum) reverse-proxy + auth
 - `M3 room-service`
 - `M4 doc-service`
 - `M5 latex-service`

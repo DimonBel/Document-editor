@@ -68,8 +68,11 @@ jobs:
           apisec-username: ${{ secrets.apisec_username }}
           # The Password of the APIsec user with which the scans will be executed
           apisec-password: ${{ secrets.apisec_password}}
-          # The name of the project for security scan
-          apisec-project: "VAmPI"
+          # The name of the project for security scan. Issue #232: was
+          # hardcoded to "VAmPI" (a deliberately-vulnerable test API);
+          # that would have polluted the APIsec dashboard if real creds
+          # were ever configured.
+          apisec-project: "DimonBel_Document-editor"
           # The name of the sarif format result file The file is written only if this property is provided.
           sarif-result-file: "apisec-results.sarif"
        - name: Import results
