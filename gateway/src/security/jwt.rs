@@ -30,6 +30,8 @@ pub struct Claims {
 }
 
 pub struct KeyManager {
+    // Issue #257: private_pem was never read after being populated.
+    #[allow(dead_code)]
     private_pem: String,
     public_jwk: serde_json::Value,
     kid: String,

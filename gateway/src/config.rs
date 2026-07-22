@@ -34,7 +34,13 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
-        let dev_mode = env::var("ED_DEV_MODE").is_ok();
+        // Issue #253: treat ED_DEV_MODE as truthy (1/true/yes), not
+        // merely "set". Operators occasionally leave it set as "" in
+        // shared env files and end up with dev-mode silently enabled.
+        let dev_mode = matches!(
+            env::var("ED_DEV_MODE").ok().as_deref().map(str::to_ascii_lowercase).as_deref(),
+            Some("1") | Some("true") | Some("yes") | Some("on")
+        );
 
         let host = env::var("GATEWAY_HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let port: u16 = env::var("GATEWAY_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8080);
