@@ -8,8 +8,13 @@
 
 # infra runtime data
 infra/data/
+backend/data/
 gateway/.cache/
 
 # working / staging files
 .slack-*.json .m*.json
 .issues/
+
+# editor / OS noise
+.DS_Store
+Thumbs.db

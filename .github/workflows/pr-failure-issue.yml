@@ -19,7 +19,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
     steps:
-      - name: Download run logs
+      - name: Download run logs (with redaction)
         run: |
           set +e
           mkdir -p /tmp/logs
@@ -32,10 +32,16 @@ jobs:
               for f in /tmp/logs/*.txt; do
                 [ -f "$f" ] || continue
                 echo "===== $(basename "$f") ====="
-                head -c 4000 "$f"
+                # Issue #233: redact known secret patterns and truncate to
+                # 8 KiB total across all files to avoid leaking any token
+                # printed into CI logs.
+                head -c 4000 "$f" \
+                  | sed -E 's/(secret|token|key|password)[ :=]+[A-Za-z0-9_\-\/+=]{6,}/<<REDACTED>>/gi'
                 echo
               done
             } > /tmp/logs.txt 2>/dev/null
+            # Cap the final blob at 8 KiB.
+            head -c 8192 /tmp/logs.txt > /tmp/logs.txt.tmp && mv /tmp/logs.txt.tmp /tmp/logs.txt
             rm -rf /tmp/logs /tmp/run.zip
           fi
         env:
