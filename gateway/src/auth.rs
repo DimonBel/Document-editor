@@ -29,8 +29,12 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginIn>,
 ) -> AppResult<Json<TokenOut>> {
+    // Issue #253 (validation): enforce sane bounds.
     if body.username.is_empty() || body.password.is_empty() {
         return Err(AppError::Validation("username and password are required".into()));
+    }
+    if body.username.len() > 256 || body.password.len() > 1024 {
+        return Err(AppError::Validation("credentials too long".into()));
     }
     let user = state
         .users
@@ -38,8 +42,13 @@ pub async fn login(
         .await?
         .ok_or_else(|| AppError::Unauthorized("invalid credentials".into()))?;
 
-    // Constant-time password check (argon2 itself is constant-time on the hash side).
-    verify_password(&body.password, &user.password_hash)?;
+    // Issue #248: Argon2 is intentionally CPU-intensive (~100 ms). Run
+    // it on a blocking task so the Tokio worker stays free.
+    let hash = user.password_hash.clone();
+    let password = body.password.clone();
+    let _verified = tokio::task::spawn_blocking(move || verify_password(&password, &hash))
+        .await
+        .map_err(|e| AppError::Internal(format!("verify join: {e}")))??;
     issue_token_pair(&state, user).await
 }
 
