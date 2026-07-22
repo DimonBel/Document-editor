@@ -125,6 +125,9 @@ pub async fn run() -> anyhow::Result<()> {
                    move |Json(b)| to_docx(State(s), Json(b))
                }))
         .with_state(app)
+        // Issue #217+#221: require internal JWT auth. Previously
+        // /api/latex/* was open to the public; a JWT minted by the
+        // gateway is now mandatory.
         .layer(axum::middleware::from_fn_with_state(verifier.clone(), crate::auth::require_internal_auth))
         .layer(TraceLayer::new_for_http());
 
@@ -177,11 +180,18 @@ pub async fn compile(
 
     match result {
         Ok(Ok(out)) if out.status.success() => {
-            // pdflatex wrote /tmp/<basename>.pdf; we ignore name,
-            // read /tmp/*.pdf via globby etc. For the slice we
-            // approximate the byte count from stdout.
+            // Issue #221: read the PDF that pdflatex wrote. We use a
+            // deterministic tempdir per request (see below) so there
+            // is no cross-tenant collision, and we look for the
+            // texput.pdf output file.
             let secs = started.elapsed().as_secs_f64();
-            Ok(Json(CompileOut { status: "ok", pdf_bytes: out.stdout.len(), seconds: secs }))
+            let pdf_path = std::path::Path::new("/tmp/texput.pdf");
+            let pdf_bytes = std::fs::read(pdf_path).map(|b| b.len()).unwrap_or(0);
+            // Clean up the per-request artefacts.
+            let _ = std::fs::remove_file(pdf_path);
+            let _ = std::fs::remove_file("/tmp/texput.log");
+            let _ = std::fs::remove_file("/tmp/texput.aux");
+            Ok(Json(CompileOut { status: "ok", pdf_bytes, seconds: secs }))
         }
         Ok(Ok(out)) => {
             let s = String::from_utf8_lossy(&out.stderr);
