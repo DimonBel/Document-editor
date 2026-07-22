@@ -6,14 +6,18 @@ pub trait IEventMessage<T> {
     fn data(&self) -> Option<&T>; fn service_name(&self) -> &str; fn topic(&self) -> &str;
     fn correlation_id(&self) -> &str; fn schema_version(&self) -> &str; fn event_name(&self) -> &str;
 }
+fn none_data<T>() -> Option<T> { None }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventMessage<T> {
     pub id: Uuid,
     #[serde(rename = "occurredAt")] pub occurred_at: DateTime<Utc>,
-    pub service_name: String, pub module_id: String,
-    pub event_name: String, pub topic: String,
-    pub correlation_id: String, pub schema_version: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(rename = "serviceName")] pub service_name: String,
+    #[serde(rename = "moduleId")] pub module_id: String,
+    #[serde(rename = "eventName")] pub event_name: String,
+    pub topic: String,
+    #[serde(rename = "correlationId")] pub correlation_id: String,
+    #[serde(rename = "schemaVersion")] pub schema_version: String,
+    #[serde(default = "none_data", skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
 }
 impl<T> EventMessage<T> {
