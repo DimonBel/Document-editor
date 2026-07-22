@@ -92,7 +92,9 @@ pub async fn proxy(
     req = req.header("Authorization", format!("Bearer {internal}"));
     req = req.header("X-Gateway", "ed-gateway");
 
-    // Forward correlation id (or generate one)
+    // Forward correlation id (or generate one). Issue #256: we use the
+    // caller-supplied X-Correlation-Id (or generate a new one), and
+    // the SAME id is echoed back on the response below.
     let cid = headers
         .get("x-correlation-id")
         .and_then(|v| v.to_str().ok())

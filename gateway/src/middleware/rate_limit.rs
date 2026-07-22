@@ -62,8 +62,9 @@ pub async fn rate_limit_middleware(
     };
 
     // Identity: prefer the authenticated user; fall back to a hashed
-    // client IP (read from `X-Forwarded-For` and **hashed** with
-    // SHA-256 so we never persist raw IPs in Redis).
+    // client IP. Issue #252: take the LAST (rightmost) entry in
+    // X-Forwarded-For -- that is the one our trusted reverse-proxy
+    // added. The first entry is trivially spoofable.
     let key = match req.extensions().get::<CurrentUser>().cloned() {
         Some(u) => format!("u:{}", u.id),
         None => {
@@ -71,7 +72,7 @@ pub async fn rate_limit_middleware(
                 .headers()
                 .get("x-forwarded-for")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.split(',').next())
+                .and_then(|s| s.rsplit(',').next())
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "anon".into());
