@@ -52,8 +52,16 @@ services:
     image: mongo:7
     container_name: ed-mongo
     restart: unless-stopped
+    environment:
+      # Issue #229: enable SCRAM authentication on the default admin DB.
+      # Operators can override via .env; the values below are the local
+      # default and are intentionally weak.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-ed}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-ed}
     volumes: ["mongo:/data/db"]
-    read_only: true
+    # Issue #229: the hardened `read_only: true` caused the broker to
+    # crash-loop because WiredTiger has to write to /data/db. Keep the
+    # rootfs read-only for everything except those explicit paths.
     tmpfs:
       - /tmp
       - /dev/shm
@@ -70,11 +78,16 @@ services:
     image: redis:7-alpine
     container_name: ed-redis
     restart: unless-stopped
-    read_only: true
+    # Issue #229: require authentication. Operators should override in
+    # .env; the values below are the local default.
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD:-ed}"
     tmpfs:
       - /tmp
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ed}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -86,14 +99,19 @@ services:
     image: rabbitmq:3.13-management-alpine
     container_name: ed-rabbit
     restart: unless-stopped
-    ports: ["15672:15672"]
+    # Issue #230: bind management UI to loopback only.
+    ports: ["127.0.0.1:15672:15672"]
     environment:
       RABBITMQ_VHOST: /
     volumes:
       - ./docker/rabbit/definitions.json:/etc/rabbitmq/definitions.json:ro
       - ./docker/rabbit/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-    read_only: true
+    # Issue #229: rabbitmq writes to /var/lib/rabbitmq and
+    # /var/log/rabbitmq at runtime; keeping the rootfs read-only
+    # while exposing those via tmpfs lets the broker boot.
     tmpfs:
+      - /var/lib/rabbitmq
+      - /var/log/rabbitmq
       - /tmp
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_listener", "5672"]
@@ -118,10 +136,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       SERVICE_NAME: room-service
-      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
-      MONGO_URL: mongodb://mongo:27017/ed
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/%2f
+      DATABASE_URL: postgres://${POSTGRES_USERNAME:-ed}:${POSTGRES_PASSWORD:-ed}@postgres:5432/ed
+      MONGO_URL: mongodb://${MONGO_USERNAME:-ed}:${MONGO_PASSWORD:-ed}@mongo:27017/ed
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ed}@redis:6379
+      RABBITMQ_URL: amqp://room-service:${RABBIT_ROOM_PASSWORD:-ed}@rabbit:5672/%2f
       RUST_LOG: info,room_service=debug,tower_http=info
     depends_on:
       postgres: { condition: service_healthy }
@@ -154,10 +172,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       SERVICE_NAME: doc-service
-      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
-      MONGO_URL: mongodb://mongo:27017/ed
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/%2f
+      DATABASE_URL: postgres://${POSTGRES_USERNAME:-ed}:${POSTGRES_PASSWORD:-ed}@postgres:5432/ed
+      MONGO_URL: mongodb://${MONGO_USERNAME:-ed}:${MONGO_PASSWORD:-ed}@mongo:27017/ed
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ed}@redis:6379
+      RABBITMQ_URL: amqp://doc-service:${RABBIT_DOC_PASSWORD:-ed}@rabbit:5672/%2f
       RUST_LOG: info,doc_service=debug,tower_http=info
     depends_on:
       postgres: { condition: service_healthy }
@@ -190,10 +208,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       SERVICE_NAME: latex-service
-      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
-      MONGO_URL: mongodb://mongo:27017/ed
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/%2f
+      DATABASE_URL: postgres://${POSTGRES_USERNAME:-ed}:${POSTGRES_PASSWORD:-ed}@postgres:5432/ed
+      MONGO_URL: mongodb://${MONGO_USERNAME:-ed}:${MONGO_PASSWORD:-ed}@mongo:27017/ed
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ed}@redis:6379
+      RABBITMQ_URL: amqp://latex-service:${RABBIT_LATEX_PASSWORD:-ed}@rabbit:5672/%2f
       LATEX_ARTEFACTS_DIR: /var/lib/latex
       RUST_LOG: info,latex_service=debug,tower_http=info
     volumes: ["latex_artefacts:/var/lib/latex"]
@@ -229,15 +247,15 @@ services:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 8080
       SERVICE_NAME: gateway
-      DATABASE_URL: postgres://ed:ed@postgres:5432/ed
-      MONGO_URL: mongodb://mongo:27017/ed
-      REDIS_URL: redis://redis:6379
-      RABBITMQ_URL: amqp://guest:guest@rabbit:5672/%2f
+      DATABASE_URL: postgres://${POSTGRES_USERNAME:-ed}:${POSTGRES_PASSWORD:-ed}@postgres:5432/ed
+      MONGO_URL: mongodb://${MONGO_USERNAME:-ed}:${MONGO_PASSWORD:-ed}@mongo:27017/ed
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ed}@redis:6379
+      RABBITMQ_URL: amqp://gateway:${RABBIT_GATEWAY_PASSWORD:-ed}@rabbit:5672/%2f
       JWT_ISSUER: ed-gateway
       JWT_AUDIENCE: ed-services
       JWKS_URL: http://gateway:8080/.well-known/jwks.json
       # Local-only secret; replace it for any shared or production deployment.
-      INTERNAL_SERVICE_TOKEN_SECRET: local-development-secret-change-me-32-bytes
+      INTERNAL_SERVICE_TOKEN_SECRET: ${INTERNAL_SERVICE_TOKEN_SECRET:-local-development-secret-change-me-32-bytes}
       RUST_LOG: info,gateway=debug,tower_http=info
     ports: ["8080:8080"]
     depends_on:
@@ -249,6 +267,8 @@ services:
     tmpfs:
       - /tmp
       - /var/tmp
+      # Issue #212: persist the gateway's RSA keypair across restarts.
+      - /var/lib/ed/gateway
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
