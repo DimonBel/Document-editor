@@ -83,6 +83,18 @@ pub async fn internal_token(
         let _ = ct_eq("x", "y");
         return Err(AppError::Unauthorized("invalid service credentials".into()));
     }
+    // Issue #220: only mint internal tokens for known service identifiers.
+    // Without this allowlist, anyone holding the shared secret could mint a
+    // token claiming to be any service (`room-service`, `admin-service`,
+    // `ed-platform-superuser`, etc.).
+    let allowed = state.config.services.keys();
+    if !allowed.into_iter().any(|s| s.as_str() == body.service.as_str()) {
+        return Err(AppError::Validation(format!(
+            "unknown service: '{}' (allowed: {:?})",
+            body.service,
+            state.config.services.keys().collect::<Vec<_>>()
+        )));
+    }
     let token = issue_internal_token(
         &state.config.internal_service_token_secret,
         &state.config.jwt_issuer,
